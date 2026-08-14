@@ -23,7 +23,7 @@ public sealed class HotkeyManager : IHotkeyManager, IDisposable
     {
         if (!RegisterHotKey(_hwnd, id, (uint)modifiers, (uint)virtualKey))
         {
-            throw new InvalidOperationException($"RegisterHotKey failed for id {id}, Win32 error {GetLastError()}");
+            throw new InvalidOperationException($"RegisterHotKey failed for id {id}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
         }
         _callbacks[id] = callback;
     }

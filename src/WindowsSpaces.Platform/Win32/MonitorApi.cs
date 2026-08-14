@@ -29,7 +29,7 @@ public sealed class MonitorApi : IMonitorManager
 
         if (!EnumDisplayMonitors(0, 0, Callback, 0))
         {
-            throw new InvalidOperationException($"EnumDisplayMonitors failed, Win32 error {GetLastError()}");
+            throw new InvalidOperationException($"EnumDisplayMonitors failed, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
         }
 
         return monitors;

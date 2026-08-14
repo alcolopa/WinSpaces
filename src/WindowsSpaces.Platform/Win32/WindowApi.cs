@@ -21,7 +21,7 @@ public sealed class WindowApi : IWindowManager
 
         if (!EnumWindows(Callback, 0))
         {
-            throw new InvalidOperationException($"EnumWindows failed, Win32 error {GetLastError()}");
+            throw new InvalidOperationException($"EnumWindows failed, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
         }
 
         return result;
@@ -43,7 +43,7 @@ public sealed class WindowApi : IWindowManager
         var placement = new WINDOWPLACEMENT { length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
         if (!GetWindowPlacement(hwnd, ref placement))
         {
-            throw new InvalidOperationException($"GetWindowPlacement failed for {hwnd}, Win32 error {GetLastError()}");
+            throw new InvalidOperationException($"GetWindowPlacement failed for {hwnd}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
         }
 
         GetWindowThreadProcessId(hwnd, out var processId);
@@ -86,7 +86,7 @@ public sealed class WindowApi : IWindowManager
     {
         if (!SetWindowPos(hwnd, 0, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_NOACTIVATE))
         {
-            throw new InvalidOperationException($"SetWindowPos failed for {hwnd}, Win32 error {GetLastError()}");
+            throw new InvalidOperationException($"SetWindowPos failed for {hwnd}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
         }
     }
 

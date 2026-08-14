@@ -26,10 +26,10 @@ internal static class NativeMethods
 
     internal delegate bool MonitorEnumProc(nint hMonitor, nint hdcMonitor, ref RECT lprcMonitor, nint dwData);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool EnumDisplayMonitors(nint hdc, nint lprcClip, MonitorEnumProc lpfnEnum, nint dwData);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern bool GetMonitorInfo(nint hMonitor, ref MONITORINFOEX lpmi);
 
     internal const uint MONITOR_DEFAULTTONEAREST = 2;
@@ -37,7 +37,7 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern nint MonitorFromWindow(nint hwnd, uint dwFlags);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, nint lParam);
 
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
@@ -88,10 +88,10 @@ internal static class NativeMethods
     internal const int SW_MINIMIZE = 6;
     internal const int SW_RESTORE = 9;
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool GetWindowPlacement(nint hWnd, ref WINDOWPLACEMENT lpwndpl);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool SetWindowPlacement(nint hWnd, ref WINDOWPLACEMENT lpwndpl);
 
     [DllImport("user32.dll")]
@@ -100,7 +100,7 @@ internal static class NativeMethods
     internal const uint SWP_NOZORDER = 0x0004;
     internal const uint SWP_NOACTIVATE = 0x0010;
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
     [DllImport("user32.dll")]
@@ -109,12 +109,9 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern nint GetForegroundWindow();
 
-    [DllImport("kernel32.dll")]
-    internal static extern int GetLastError();
-
     internal delegate void WinEventDelegate(nint hWinEventHook, uint eventType, nint hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern nint SetWinEventHook(uint eventMin, uint eventMax, nint hmodWinEventProc, WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
 
     [DllImport("user32.dll")]
@@ -149,7 +146,7 @@ internal static class NativeMethods
         public Point pt;
     }
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool RegisterHotKey(nint hWnd, int id, uint fsModifiers, uint vk);
 
     [DllImport("user32.dll")]
