@@ -63,13 +63,16 @@ public class WorkspaceManagerAcceptanceTests
         windowApi.Move(hwndOnB, new System.Drawing.Rectangle(monitorB.Bounds.X + 50, monitorB.Bounds.Y + 50, 400, 300));
 
         var eventSource = new WinEventHook();
-        var tracker = new WindowTracker(windowApi, eventSource);
+        var guard = new OperationGuard();
+        var tracker = new WindowTracker(windowApi, eventSource, monitorApi, guard);
         tracker.Rescan();
 
-        // Assign monitor/workspace by hand (the real app does this via
-        // WindowTracker + monitor-from-window lookups over time; here we
-        // set it directly since this test only needs to prove the
-        // switching mechanism, not the full assignment pipeline).
+        // WindowTracker.Rescan already assigns each window to its real
+        // current monitor's first workspace via monitorApi.GetMonitorForWindow
+        // (both test windows were just moved onto MonitorA/MonitorB above).
+        // Re-point them at the exact workspace IDs this test uses, in case
+        // GetMonitorForWindow's monitor-from-point lookup landed on a
+        // slightly different device identity than monitorA.Id/monitorB.Id.
         var stateA = tracker.TrackedWindows[hwndOnA];
         stateA.MonitorId = monitorA.Id;
         stateA.WorkspaceId = $"{monitorA.Id}:1";
@@ -77,7 +80,7 @@ public class WorkspaceManagerAcceptanceTests
         stateB.MonitorId = monitorB.Id;
         stateB.WorkspaceId = $"{monitorB.Id}:1";
 
-        var workspaceManager = new WorkspaceManager(windowApi, tracker);
+        var workspaceManager = new WorkspaceManager(windowApi, tracker, guard);
         workspaceManager.SwitchWorkspace(monitorA.Id, $"{monitorA.Id}:1");
         workspaceManager.SwitchWorkspace(monitorB.Id, $"{monitorB.Id}:1");
 

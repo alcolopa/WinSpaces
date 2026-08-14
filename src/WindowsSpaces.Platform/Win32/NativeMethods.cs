@@ -51,9 +51,6 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern int GetWindowTextLength(nint hWnd);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    internal static extern int GetWindowText(nint hWnd, System.Text.StringBuilder lpString, int nMaxCount);
-
     [DllImport("user32.dll")]
     internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
 
@@ -68,9 +65,6 @@ internal static class NativeMethods
     internal const int GWL_EXSTYLE = -20;
     internal const int WS_EX_TOOLWINDOW = 0x80;
 
-    [DllImport("user32.dll")]
-    internal static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
-
     [StructLayout(LayoutKind.Sequential)]
     internal struct WINDOWPLACEMENT
     {
@@ -83,16 +77,12 @@ internal static class NativeMethods
     }
 
     internal const int SW_HIDE = 0;
+    internal const int SW_SHOWMINIMIZED = 2;
+    internal const int SW_SHOWMAXIMIZED = 3;
     internal const int SW_SHOWNOACTIVATE = 4;
-    internal const int SW_SHOW = 5;
-    internal const int SW_MINIMIZE = 6;
-    internal const int SW_RESTORE = 9;
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool GetWindowPlacement(nint hWnd, ref WINDOWPLACEMENT lpwndpl);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    internal static extern bool SetWindowPlacement(nint hWnd, ref WINDOWPLACEMENT lpwndpl);
 
     [DllImport("user32.dll")]
     internal static extern bool ShowWindow(nint hWnd, int nCmdShow);

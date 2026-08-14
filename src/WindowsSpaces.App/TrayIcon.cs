@@ -23,7 +23,6 @@ public sealed class TrayIcon : IDisposable
     }
 
     private const int NIF_MESSAGE = 0x1;
-    private const int NIF_ICON = 0x2;
     private const int NIF_TIP = 0x4;
     private const int NIM_ADD = 0x0;
     private const int NIM_MODIFY = 0x1;

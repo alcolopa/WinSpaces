@@ -12,6 +12,7 @@ public sealed class AppHost : IDisposable
     private readonly MonitorApi _monitorApi = new();
     private readonly WindowApi _windowApi = new();
     private readonly WinEventHook _eventSource = new();
+    private readonly OperationGuard _guard = new();
     private readonly WindowTracker _tracker;
     private readonly WorkspaceManager _workspaceManager;
     private HotkeyManager? _hotkeys;
@@ -19,8 +20,8 @@ public sealed class AppHost : IDisposable
 
     public AppHost()
     {
-        _tracker = new WindowTracker(_windowApi, _eventSource);
-        _workspaceManager = new WorkspaceManager(_windowApi, _tracker);
+        _tracker = new WindowTracker(_windowApi, _eventSource, _monitorApi, _guard);
+        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard);
     }
 
     public void Start(nint messageWindowHwnd)

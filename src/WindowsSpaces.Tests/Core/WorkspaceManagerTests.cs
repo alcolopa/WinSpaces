@@ -1,4 +1,6 @@
 using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
 using WindowsSpaces.Core;
 using WindowsSpaces.Tests.Fakes;
 using Xunit;
@@ -11,6 +13,7 @@ public class WorkspaceManagerTests
         params (nint hwnd, string monitorId, string workspaceId)[] windows)
     {
         var wm = new FakeWindowManager();
+        var monitors = new FakeMonitorManager();
         foreach (var (hwnd, monitorId, workspaceId) in windows)
         {
             wm.Windows[hwnd] = new WindowState
@@ -25,9 +28,19 @@ public class WorkspaceManagerTests
             };
         }
         var events = new FakeWindowEventSource();
-        var tracker = new WindowTracker(wm, events);
+        var guard = new OperationGuard();
+        var tracker = new WindowTracker(wm, events, monitors, guard);
         tracker.Rescan();
-        var mgr = new WorkspaceManager(wm, tracker);
+        // Rescan re-derives MonitorId/WorkspaceId from FakeMonitorManager
+        // (empty here), which would wipe the explicit assignments above.
+        // Restore them directly since this suite is testing WorkspaceManager,
+        // not WindowTracker's assignment logic (see WindowTrackerTests for that).
+        foreach (var (hwnd, monitorId, workspaceId) in windows)
+        {
+            tracker.TrackedWindows[hwnd].MonitorId = monitorId;
+            tracker.TrackedWindows[hwnd].WorkspaceId = workspaceId;
+        }
+        var mgr = new WorkspaceManager(wm, tracker, guard);
 
         // Mirror AppHost.Start()'s bootstrap: each monitor's active workspace
         // starts as whatever workspace its initial windows are already in.
@@ -73,7 +86,7 @@ public class WorkspaceManagerTests
     }
 
     [Fact]
-    public void RapidSwitching_CollapsesToLatestTarget()
+    public void RapidSequentialSwitching_EndsAtLatestTarget()
     {
         var (mgr, wm, _) = Build();
 
@@ -85,14 +98,50 @@ public class WorkspaceManagerTests
     }
 
     [Fact]
-    public void AssignWindow_MovesWindowToNewWorkspace()
+    public void ConcurrentSwitchWorkspace_ForSameMonitor_CollapsesToLatestTarget_WithoutExecutingEveryIntermediateTransition()
     {
         var hwnd = (nint)1;
         var (mgr, wm, _) = Build((hwnd, "MON-A", "MON-A:1"));
+        wm.HideGate = new ManualResetEventSlim(false);
+
+        // First switch blocks inside Hide(), simulating an in-flight transition.
+        var inFlight = Task.Run(() => mgr.SwitchWorkspace("MON-A", "MON-A:2"));
+        Assert.True(wm.HideEntered.Wait(TimeSpan.FromSeconds(2)), "first transition never entered Hide()");
+
+        // Two more requests arrive while the first is still executing.
+        // Per "latest request wins", these must NOT each run their own
+        // full transition — they should collapse to a single follow-up
+        // execution of the last target.
+        mgr.SwitchWorkspace("MON-A", "MON-A:3");
+        mgr.SwitchWorkspace("MON-A", "MON-A:2");
+
+        wm.HideGate.Set();
+#pragma warning disable xUnit1031 // Deliberately blocking: proving the queue collapses concurrent requests requires a real background transition to synchronize with.
+        Assert.True(inFlight.Wait(TimeSpan.FromSeconds(2)), "in-flight transition never completed");
+#pragma warning restore xUnit1031
+        Assert.True(SpinWait.SpinUntil(() => mgr.GetActiveWorkspace("MON-A") == "MON-A:2", TimeSpan.FromSeconds(2)));
+
+        // Without collapsing, three independent executions (:2, :3, :2)
+        // would each call Hide(hwnd) again since hwnd's own WorkspaceId
+        // never changes ("MON-A:1" the whole time, so it never matches
+        // any of these targets) — that would total 3 Hide calls. With
+        // collapsing, only the single real execution (to :2) runs; the
+        // redundant follow-up execution short-circuits on the
+        // already-at-target check before calling Hide again.
+        var hideCount = wm.Operations.Count(op => op.Hwnd == hwnd && op.Op == "Hide");
+        Assert.Equal(1, hideCount);
+        Assert.Equal("MON-A:2", mgr.GetActiveWorkspace("MON-A"));
+    }
+
+    [Fact]
+    public void AssignWindow_MovesWindowToNewWorkspace()
+    {
+        var hwnd = (nint)1;
+        var (mgr, wm, tracker) = Build((hwnd, "MON-A", "MON-A:1"));
 
         mgr.AssignWindow(hwnd, "MON-A:2");
 
-        Assert.Equal("MON-A:2", wm.Windows[hwnd].WorkspaceId);
+        Assert.Equal("MON-A:2", tracker.TrackedWindows[hwnd].WorkspaceId);
     }
 
     [Fact]

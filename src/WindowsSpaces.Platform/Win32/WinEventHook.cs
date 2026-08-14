@@ -27,13 +27,22 @@ public sealed class WinEventHook : IWindowEventSource, IDisposable
 
     public void Start()
     {
-        _hooks.Add(SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE, 0, _callback, 0, 0, WINEVENT_OUTOFCONTEXT));
-        _hooks.Add(SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, 0, _callback, 0, 0, WINEVENT_OUTOFCONTEXT));
-        _hooks.Add(SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, 0, _callback, 0, 0, WINEVENT_OUTOFCONTEXT));
+        AddHook(SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE, 0, _callback, 0, 0, WINEVENT_OUTOFCONTEXT));
+        AddHook(SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, 0, _callback, 0, 0, WINEVENT_OUTOFCONTEXT));
+        AddHook(SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, 0, _callback, 0, 0, WINEVENT_OUTOFCONTEXT));
 
         _running = true;
         _dispatchThread = new Thread(DispatchLoop) { IsBackground = true, Name = "WindowsSpaces.EventDispatch" };
         _dispatchThread.Start();
+    }
+
+    private void AddHook(nint hook)
+    {
+        if (hook == 0)
+        {
+            throw new InvalidOperationException($"SetWinEventHook failed, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+        }
+        _hooks.Add(hook);
     }
 
     public void Stop()

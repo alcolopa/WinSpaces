@@ -4,71 +4,108 @@ namespace WindowsSpaces.Core;
 
 /// <summary>
 /// Owns per-monitor active-workspace state and the hide/show/move switching
-/// algorithm. Each monitor has its own transition lock; a rapid sequence of
-/// switch requests for the same monitor collapses to the latest target
-/// ("latest request wins") rather than executing every intermediate step.
+/// algorithm. Each monitor has its own transition worker; at most one
+/// transition executes per monitor at a time. A call that arrives while a
+/// transition for that monitor is already running does not queue a second
+/// execution — it overwrites the pending target, so a burst of calls
+/// (1 -> 2 -> 3 -> 2) collapses to a single execution of the last target
+/// once the in-flight one finishes ("latest request wins").
 /// </summary>
 public sealed class WorkspaceManager
 {
+    private sealed class MonitorTransitionState
+    {
+        public readonly object Lock = new();
+        public string? PendingTarget;
+        public bool WorkerRunning;
+    }
+
     private readonly IWindowManager _windowManager;
     private readonly WindowTracker _tracker;
-    private readonly OperationGuard _guard = new();
+    private readonly OperationGuard _guard;
     private readonly ConcurrentDictionary<string, string> _activeWorkspaceByMonitor = new();
-    private readonly ConcurrentDictionary<string, object> _monitorLocks = new();
+    private readonly ConcurrentDictionary<string, MonitorTransitionState> _transitions = new();
 
-    public WorkspaceManager(IWindowManager windowManager, WindowTracker tracker)
+    public WorkspaceManager(IWindowManager windowManager, WindowTracker tracker, OperationGuard guard)
     {
         _windowManager = windowManager;
         _tracker = tracker;
+        _guard = guard;
     }
 
     public string? GetActiveWorkspace(string monitorId) =>
         _activeWorkspaceByMonitor.GetValueOrDefault(monitorId);
 
     /// <summary>
-    /// Switches the given monitor to the target workspace. Safe to call
-    /// rapidly and repeatedly for the same monitor: only the latest call's
-    /// target is honored once the lock for that monitor is acquired.
+    /// Requests a switch of the given monitor to the target workspace. If a
+    /// transition for this monitor is already executing, this call only
+    /// updates the pending target and returns immediately — the in-flight
+    /// transition's worker picks up the latest pending target once it
+    /// finishes, draining until no new target has arrived.
     /// </summary>
     public void SwitchWorkspace(string monitorId, string targetWorkspaceId)
     {
-        var monitorLock = _monitorLocks.GetOrAdd(monitorId, _ => new object());
+        var state = _transitions.GetOrAdd(monitorId, _ => new MonitorTransitionState());
 
-        lock (monitorLock)
+        lock (state.Lock)
         {
-            // Re-check: if a queued caller already moved us to this target
-            // (or past it) under the lock, there is nothing left to do.
-            if (_activeWorkspaceByMonitor.TryGetValue(monitorId, out var currentBeforeWait) &&
-                currentBeforeWait == targetWorkspaceId)
+            state.PendingTarget = targetWorkspaceId;
+            if (state.WorkerRunning)
             {
                 return;
             }
-
-            var windowsOnMonitor = _tracker.TrackedWindows.Values
-                .Where(w => w.MonitorId == monitorId)
-                .ToList();
-
-            // Hide everything on this monitor not in the target workspace.
-            foreach (var window in windowsOnMonitor.Where(w => w.WorkspaceId != targetWorkspaceId))
-            {
-                using (_guard.Suppress(window.Hwnd))
-                {
-                    _windowManager.Hide(window.Hwnd);
-                }
-            }
-
-            // Show everything in the target workspace on this monitor.
-            foreach (var window in windowsOnMonitor.Where(w => w.WorkspaceId == targetWorkspaceId))
-            {
-                using (_guard.Suppress(window.Hwnd))
-                {
-                    _windowManager.Move(window.Hwnd, window.NormalBounds);
-                    _windowManager.Show(window.Hwnd);
-                }
-            }
-
-            _activeWorkspaceByMonitor[monitorId] = targetWorkspaceId;
+            state.WorkerRunning = true;
         }
+
+        while (true)
+        {
+            string target;
+            lock (state.Lock)
+            {
+                if (state.PendingTarget is null)
+                {
+                    state.WorkerRunning = false;
+                    return;
+                }
+                target = state.PendingTarget;
+                state.PendingTarget = null;
+            }
+
+            ApplyWorkspaceSwitch(monitorId, target);
+        }
+    }
+
+    private void ApplyWorkspaceSwitch(string monitorId, string targetWorkspaceId)
+    {
+        if (_activeWorkspaceByMonitor.TryGetValue(monitorId, out var current) && current == targetWorkspaceId)
+        {
+            return;
+        }
+
+        var windowsOnMonitor = _tracker.TrackedWindows.Values
+            .Where(w => w.MonitorId == monitorId)
+            .ToList();
+
+        // Hide everything on this monitor not in the target workspace.
+        foreach (var window in windowsOnMonitor.Where(w => w.WorkspaceId != targetWorkspaceId))
+        {
+            using (_guard.Suppress(window.Hwnd))
+            {
+                _windowManager.Hide(window.Hwnd);
+            }
+        }
+
+        // Show everything in the target workspace on this monitor.
+        foreach (var window in windowsOnMonitor.Where(w => w.WorkspaceId == targetWorkspaceId))
+        {
+            using (_guard.Suppress(window.Hwnd))
+            {
+                _windowManager.Move(window.Hwnd, window.NormalBounds);
+                _windowManager.Show(window.Hwnd);
+            }
+        }
+
+        _activeWorkspaceByMonitor[monitorId] = targetWorkspaceId;
     }
 
     /// <summary>
@@ -78,8 +115,7 @@ public sealed class WorkspaceManager
     /// </summary>
     public void AssignWindow(nint hwnd, string targetWorkspaceId)
     {
-        var state = _windowManager.GetWindowState(hwnd);
-        if (state is null) return;
+        if (!_tracker.TrackedWindows.TryGetValue(hwnd, out var state)) return;
 
         var monitorId = state.MonitorId;
         state.WorkspaceId = targetWorkspaceId;

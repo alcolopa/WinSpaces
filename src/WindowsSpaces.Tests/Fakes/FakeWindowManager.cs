@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Drawing;
+using System.Threading;
 using WindowsSpaces.Core;
 
 namespace WindowsSpaces.Tests.Fakes;
@@ -6,8 +8,17 @@ namespace WindowsSpaces.Tests.Fakes;
 public sealed class FakeWindowManager : IWindowManager
 {
     public Dictionary<nint, WindowState> Windows { get; } = new();
-    public List<(nint Hwnd, string Op)> Operations { get; } = new();
+    public ConcurrentBag<(nint Hwnd, string Op)> Operations { get; } = new();
     public nint Foreground { get; set; }
+
+    /// <summary>
+    /// When set, Hide() signals HideEntered and blocks until this gate is
+    /// released — used to simulate an in-flight transition so tests can
+    /// prove the latest-request-wins queue actually collapses concurrent
+    /// requests instead of executing every one.
+    /// </summary>
+    public ManualResetEventSlim? HideGate { get; set; }
+    public ManualResetEventSlim HideEntered { get; } = new(false);
 
     public IReadOnlyList<nint> EnumerateTopLevelWindows() => Windows.Keys.ToList();
 
@@ -15,6 +26,8 @@ public sealed class FakeWindowManager : IWindowManager
 
     public void Hide(nint hwnd)
     {
+        HideEntered.Set();
+        HideGate?.Wait();
         Operations.Add((hwnd, "Hide"));
         if (Windows.TryGetValue(hwnd, out var s)) s.IsVisible = false;
     }

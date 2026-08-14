@@ -55,8 +55,8 @@ public sealed class WindowApi : IWindowManager
             Hwnd = hwnd,
             ProcessId = (int)processId,
             IsVisible = IsWindowVisible(hwnd),
-            IsMinimized = placement.showCmd == SW_MINIMIZE,
-            IsMaximized = placement.showCmd == 3, // SW_SHOWMAXIMIZED
+            IsMinimized = placement.showCmd == SW_SHOWMINIMIZED,
+            IsMaximized = placement.showCmd == SW_SHOWMAXIMIZED,
             NormalBounds = Rectangle.FromLTRB(normal.Left, normal.Top, normal.Right, normal.Bottom),
             LastUpdated = DateTimeOffset.UtcNow
         };
@@ -74,8 +74,8 @@ public sealed class WindowApi : IWindowManager
 
         var showCmd = placement.showCmd switch
         {
-            2 => 2,   // SW_SHOWMINIMIZED -> keep minimized
-            3 => 3,   // SW_SHOWMAXIMIZED -> keep maximized
+            SW_SHOWMINIMIZED => SW_SHOWMINIMIZED,
+            SW_SHOWMAXIMIZED => SW_SHOWMAXIMIZED,
             _ => SW_SHOWNOACTIVATE
         };
 
