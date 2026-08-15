@@ -58,7 +58,26 @@ public sealed class AppHost : IDisposable
         RegisterHotkeys(_config.Hotkeys);
 
         _trayIcon = new TrayIcon(messageWindowHwnd);
+        _trayIcon.MenuItemInvoked += OnTrayMenuItemInvoked;
         _trayIcon.Show();
+    }
+
+    private void OnTrayMenuItemInvoked(object? sender, TrayMenuCommand command)
+    {
+        switch (command)
+        {
+            case TrayMenuCommand.ShowAllWindows:
+                ShowAllWindows();
+                break;
+            case TrayMenuCommand.Exit:
+                Environment.Exit(0);
+                break;
+            case TrayMenuCommand.Settings:
+            case TrayMenuCommand.Shortcuts:
+            case TrayMenuCommand.Diagnostics:
+                // Wired to open the corresponding window in Task 8-10.
+                break;
+        }
     }
 
     /// <summary>
@@ -156,6 +175,8 @@ public sealed class AppHost : IDisposable
     public void ShowAllWindows() => _workspaceManager.ShowAllWindows();
 
     public void HandleMessage(uint message, nint wParam) => _hotkeys?.HandleMessage(message, wParam);
+
+    public void HandleTrayMessage(uint message, nint wParam, nint lParam) => _trayIcon?.HandleMessage(message, wParam, lParam);
 
     public void Dispose()
     {

@@ -5,6 +5,7 @@ internal static class Program
 {
     private const uint WM_HOTKEY = 0x0312;
     private const uint WM_DESTROY = 0x0002;
+    private const uint WM_APP = 0x8000;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint CreateWindowEx(uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
@@ -96,6 +97,10 @@ internal static class Program
             if (msg.message == WM_HOTKEY)
             {
                 _host.HandleMessage(msg.message, msg.wParam);
+            }
+            else if (msg.message == WM_APP)
+            {
+                _host.HandleTrayMessage(msg.message, msg.wParam, msg.lParam);
             }
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
