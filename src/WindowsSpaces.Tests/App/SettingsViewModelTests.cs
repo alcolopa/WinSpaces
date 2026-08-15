@@ -1,3 +1,4 @@
+using System;
 using System.Drawing;
 using System.Linq;
 using WindowsSpaces.App.ViewModels;
@@ -90,5 +91,58 @@ public class SettingsViewModelTests
 
         Assert.False(saved);
         Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void AddWorkspace_UnknownMonitorId_ThrowsArgumentException()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        Assert.Throws<ArgumentException>(() => vm.AddWorkspace("MON-UNKNOWN"));
+    }
+
+    [Fact]
+    public void RemoveWorkspace_UnknownMonitorId_ThrowsArgumentException()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        Assert.Throws<ArgumentException>(() => vm.RemoveWorkspace("MON-UNKNOWN", "MON-A:1"));
+    }
+
+    [Fact]
+    public void RenameWorkspace_UnknownMonitorId_ThrowsArgumentException()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        Assert.Throws<ArgumentException>(() => vm.RenameWorkspace("MON-UNKNOWN", "MON-A:1", "New Name"));
+    }
+
+    [Fact]
+    public void RemoveWorkspace_UnknownWorkspaceId_NoOps()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        vm.RemoveWorkspace("MON-A", "MON-A:DOES-NOT-EXIST");
+
+        var monitor = vm.Monitors.Single(m => m.MonitorId == "MON-A");
+        Assert.Equal(2, monitor.Workspaces.Count);
+    }
+
+    [Fact]
+    public void RenameWorkspace_UnknownWorkspaceId_NoOps()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        vm.RenameWorkspace("MON-A", "MON-A:DOES-NOT-EXIST", "New Name");
+
+        var monitor = vm.Monitors.Single(m => m.MonitorId == "MON-A");
+        Assert.DoesNotContain(monitor.Workspaces, w => w.Name == "New Name");
+        Assert.Equal("Space 1", monitor.Workspaces[0].Name);
+        Assert.Equal("Space 2", monitor.Workspaces[1].Name);
     }
 }

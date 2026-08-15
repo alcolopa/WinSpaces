@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using WindowsSpaces.App.ViewModels;
 using WindowsSpaces.Core;
@@ -50,5 +51,15 @@ public class ShortcutSettingsViewModelTests
         Assert.True(saved);
         Assert.Null(error);
         Assert.Contains(updated.Hotkeys, b => b.Action == HotkeyAction.SwitchWorkspace && b.WorkspaceIndex == 1 && b.VirtualKey == 0x39);
+    }
+
+    [Fact]
+    public void Rebind_UnmatchedActionWorkspaceIndexPair_ThrowsArgumentException()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new ShortcutSettingsViewModel(config);
+
+        Assert.Throws<ArgumentException>(() =>
+            vm.Rebind(HotkeyAction.SwitchWorkspace, workspaceIndex: 9, ModifierKeys.Control, virtualKey: 0x39));
     }
 }
