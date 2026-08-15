@@ -21,7 +21,11 @@ public sealed class WindowApi : IWindowManager
 
         if (!EnumWindows(Callback, 0))
         {
-            throw new InvalidOperationException($"EnumWindows failed, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            var errorCode = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            if (errorCode != 0)
+            {
+                throw new InvalidOperationException($"EnumWindows failed, Win32 error {errorCode}");
+            }
         }
 
         return result;

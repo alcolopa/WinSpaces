@@ -21,10 +21,15 @@
     <!-- Keep Program.Main as the entry point; without this the XAML compiler
          generates its own Main and the build fails with CS0017. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- Unpackaged WinUI3 apps look for a resource index file literally named
+         resources.pri next to the exe (not <ProjectName>.pri, which is what
+         the build produces by default). Without this the app crashes on
+         launch inside Microsoft.UI.Xaml.dll before any of our code runs. -->
+    <ProjectPriFileName>resources.pri</ProjectPriFileName>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250602001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
     <!-- .NET SDK 10 no longer ships the in-box MSIX/PRI MSBuild tooling
          (Microsoft\VisualStudio\v*\AppxPackage), which MrtCore.PriGen.targets
