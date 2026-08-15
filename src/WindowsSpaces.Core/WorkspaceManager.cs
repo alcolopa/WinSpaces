@@ -36,6 +36,16 @@ public sealed class WorkspaceManager
     public string? GetActiveWorkspace(string monitorId) =>
         _activeWorkspaceByMonitor.GetValueOrDefault(monitorId);
 
+    private readonly ConcurrentDictionary<string, string> _workspaceNames = new();
+
+    public void RenameWorkspace(string workspaceId, string name) => _workspaceNames[workspaceId] = name;
+
+    /// <summary>Names for all known workspaces on a monitor, keyed by workspace id. Only includes workspaces that have been named via RenameWorkspace.</summary>
+    public IReadOnlyDictionary<string, string> GetWorkspaceNames(string monitorId) =>
+        _workspaceNames
+            .Where(kv => kv.Key.StartsWith(monitorId + ":", StringComparison.Ordinal))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
     /// <summary>
     /// Requests a switch of the given monitor to the target workspace. If a
     /// transition for this monitor is already executing, this call only

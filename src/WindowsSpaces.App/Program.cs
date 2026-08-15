@@ -5,6 +5,7 @@ internal static class Program
 {
     private const uint WM_HOTKEY = 0x0312;
     private const uint WM_DESTROY = 0x0002;
+    private const uint WM_APP = 0x8000;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint CreateWindowEx(uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
@@ -61,10 +62,35 @@ internal static class Program
     }
 
     private static AppHost? _host;
+    private static App? _app;
     private static WndProc? _wndProcDelegate;
 
     [STAThread]
     private static void Main()
+    {
+        // Bootstrap the WinUI3 framework on this STA thread. The callback runs
+        // the existing raw Win32 message-only window + GetMessage pump, so
+        // hotkey/tray behavior is unchanged; the only difference is that the
+        // XAML dispatcher is now initialized on the same thread, allowing
+        // Microsoft.UI.Xaml.Window instances to be created later.
+        //
+        // This project sets DISABLE_XAML_GENERATED_MAIN, so the C#/WinRT COM
+        // interop layer that the XAML-generated Main would have initialized
+        // must be initialized here by hand, before Application.Start — without
+        // it XAML type activation fails.
+        global::WinRT.ComWrappersSupport.InitializeComWrappers();
+
+        Microsoft.UI.Xaml.Application.Start(_ =>
+        {
+            var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
+                Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+            System.Threading.SynchronizationContext.SetSynchronizationContext(context);
+            _app = new App();
+            RunMessageWindowLoop();
+        });
+    }
+
+    private static void RunMessageWindowLoop()
     {
         _wndProcDelegate = WndProcHandler;
         var hInstance = GetModuleHandle(null);
@@ -91,11 +117,23 @@ internal static class Program
         _host = new AppHost();
         _host.Start(hwnd);
 
+        if (_app is not null)
+        {
+            _app.Host = _host;
+        }
+
         while (GetMessage(out var msg, 0, 0, 0) > 0)
         {
             if (msg.message == WM_HOTKEY)
             {
                 _host.HandleMessage(msg.message, msg.wParam);
+            }
+            else if (msg.message == WM_APP && msg.hwnd == hwnd)
+            {
+                // Only messages targeting our own message-only window are tray
+                // callbacks; WinUI plumbing on this same thread also uses the
+                // WM_APP range for its own windows.
+                _host.HandleTrayMessage(msg.message, msg.wParam, msg.lParam);
             }
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);

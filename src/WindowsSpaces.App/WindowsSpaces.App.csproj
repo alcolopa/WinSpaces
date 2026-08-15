@@ -9,11 +9,33 @@
     <RootNamespace>WindowsSpaces.App</RootNamespace>
     <Platforms>x64</Platforms>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- WindowsAppSDKSelfContained needs a concrete RID, not just the
+         RuntimeIdentifiers list, or the SelfContained targets fail with
+         "WindowsAppSDKSelfContained requires a supported Windows architecture." -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Keep Program.Main as the entry point; without this the XAML compiler
+         generates its own Main and the build fails with CS0017. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <!-- .NET SDK 10 no longer ships the in-box MSIX/PRI MSBuild tooling
+         (Microsoft\VisualStudio\v*\AppxPackage), which MrtCore.PriGen.targets
+         requires. This package supplies it. -->
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.260610101" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WindowsSpaces.Core\WindowsSpaces.Core.csproj" />
     <ProjectReference Include="..\WindowsSpaces.Platform\WindowsSpaces.Platform.csproj" />
+    <ProjectReference Include="..\WindowsSpaces.Persistence\WindowsSpaces.Persistence.csproj" />
   </ItemGroup>
 
 </Project>
