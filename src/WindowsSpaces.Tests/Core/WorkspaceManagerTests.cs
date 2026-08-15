@@ -174,4 +174,25 @@ public class WorkspaceManagerTests
 
         Assert.False(guard.IsSuppressed((nint)1));
     }
+
+    [Fact]
+    public void ApplyProfile_SwitchesActiveWorkspacesAcrossAllMonitors()
+    {
+        var hwndA = (nint)1;
+        var hwndB = (nint)2;
+        var (mgr, wm, _) = Build(
+            (hwndA, "MON-A", "MON-A:1"),
+            (hwndB, "MON-B", "MON-B:1"));
+
+        var profile = new WorkspaceProfile("TestProfile", new Dictionary<string, string>
+        {
+            { "MON-A", "MON-A:2" },
+            { "MON-B", "MON-B:2" }
+        });
+
+        mgr.ApplyProfile(profile);
+
+        Assert.Equal("MON-A:2", mgr.GetActiveWorkspace("MON-A"));
+        Assert.Equal("MON-B:2", mgr.GetActiveWorkspace("MON-B"));
+    }
 }

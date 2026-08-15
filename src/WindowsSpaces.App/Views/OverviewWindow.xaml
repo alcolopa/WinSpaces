@@ -1,0 +1,75 @@
+<Window
+    x:Class="WindowsSpaces.App.Views.OverviewWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Mission Control">
+
+    <Grid x:Name="RootGrid" Background="#E0111115">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="40,30,40,10" Orientation="Horizontal" HorizontalAlignment="Center">
+            <TextBlock Text="Mission Control — " FontSize="28" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+            <TextBlock x:Name="MonitorIdText" Text="Monitor" FontSize="28" FontWeight="Light" Foreground="#A0A0A0"/>
+        </StackPanel>
+
+        <!-- Workspaces Container -->
+        <ItemsControl x:Name="WorkspacesControl" Grid.Row="1" Margin="40,20,40,40" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="24"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Grid Width="280" Height="500" Background="#1C1C24" CornerRadius="12" Padding="16">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Border highlight for active workspace -->
+                        <Border BorderBrush="#4D9FEF" BorderThickness="2" CornerRadius="12" Margin="-16"
+                                Visibility="{Binding ActiveBorderVisibility}"/>
+
+                        <!-- Workspace Header -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16" Spacing="8">
+                            <Ellipse Width="10" Height="10" Fill="#4D9FEF" Visibility="{Binding ActiveIndicatorVisibility}"/>
+                            <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                        </StackPanel>
+
+                        <!-- Window Cards Grid -->
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding Windows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- Card representation -->
+                                        <Grid Height="90" Background="#262630" CornerRadius="8" Padding="10"
+                                              Tag="{Binding Hwnd}">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- Window Title -->
+                                            <TextBlock Grid.Row="0" Text="{Binding Title}" FontSize="12" FontWeight="Medium" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
+
+                                            <!-- Placeholder for DWM Preview or process info -->
+                                            <Border Tag="ThumbnailPlaceholder" Grid.Row="1" Background="#1C1C24" CornerRadius="4" BorderBrush="#3A3A4A" BorderThickness="1">
+                                                <TextBlock Text="{Binding ProcessPath}" FontSize="9" Foreground="#606070" HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="4,0,4,0"/>
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</Window>

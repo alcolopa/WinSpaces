@@ -1,6 +1,7 @@
 using WindowsSpaces.App.Views;
 using WindowsSpaces.Core;
 using WindowsSpaces.Persistence;
+using WindowsSpaces.Platform;
 using WindowsSpaces.Platform.Win32;
 using Monitor = WindowsSpaces.Core.Monitor;
 
@@ -24,17 +25,40 @@ public sealed class AppHost : IDisposable
     private TrayIcon? _trayIcon;
     private AppConfiguration _config = null!;
     private nint _messageWindowHwnd;
+    private IpcServer? _ipcServer;
+    private readonly string _configFilePath;
+    private FileSystemWatcher? _configWatcher;
+    private readonly List<OverviewWindow> _overviewWindows = new();
 
-    public AppHost() : this(new JsonConfigurationStore(
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WindowsSpaces", "config.json")))
+    public AppHost() : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WindowsSpaces", "config.json"))
     {
     }
 
-    public AppHost(IConfigurationStore configStore)
+    public AppHost(string configFilePath) : this(new JsonConfigurationStore(configFilePath), configFilePath)
+    {
+    }
+
+    public WorkspaceManager WorkspaceManager => _workspaceManager;
+    public WindowTracker WindowTracker => _tracker;
+    public AppConfiguration Config => _config;
+
+    public AppHost(IConfigurationStore configStore, string configFilePath)
     {
         _configStore = configStore;
-        _tracker = new WindowTracker(_windowApi, _eventSource, _monitorApi, _guard);
-        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard);
+        _configFilePath = configFilePath;
+        _tracker = new WindowTracker(_windowApi, _eventSource, _monitorApi, _guard,
+            getRules: () => _config?.ActiveRules ?? Array.Empty<ApplicationRule>(),
+            getActiveWorkspace: monitorId => _workspaceManager?.GetActiveWorkspace(monitorId),
+            tryConsumeRestoration: (string path, string winClass, string title, out WindowProfileState? restoration) =>
+            {
+                if (_workspaceManager is not null)
+                {
+                    return _workspaceManager.TryConsumeRestoration(path, winClass, title, out restoration);
+                }
+                restoration = null;
+                return false;
+            });
+        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager());
     }
 
     public void Start(nint messageWindowHwnd)
@@ -50,6 +74,7 @@ public sealed class AppHost : IDisposable
         {
             foreach (var workspace in monitorConfig.Workspaces)
             {
+                _workspaceManager.SetWorkspaceDefinition(workspace);
                 _workspaceManager.RenameWorkspace(workspace.Id, workspace.Name);
             }
             _workspaceManager.SwitchWorkspace(monitorConfig.MonitorId, monitorConfig.Workspaces[0].Id);
@@ -61,6 +86,55 @@ public sealed class AppHost : IDisposable
         _trayIcon = new TrayIcon(messageWindowHwnd);
         _trayIcon.MenuItemInvoked += OnTrayMenuItemInvoked;
         _trayIcon.Show();
+
+        var dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _ipcServer = new IpcServer(this, dispatcherQueue);
+        _ipcServer.Start();
+
+        InitializeConfigWatcher();
+    }
+
+    private void InitializeConfigWatcher()
+    {
+        var directory = Path.GetDirectoryName(_configFilePath);
+        if (string.IsNullOrEmpty(directory)) return;
+
+        Directory.CreateDirectory(directory);
+        _configWatcher = new FileSystemWatcher(directory, "config.json")
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
+            EnableRaisingEvents = true
+        };
+        _configWatcher.Changed += OnConfigChanged;
+    }
+
+    private void OnConfigChanged(object sender, FileSystemEventArgs e)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                Thread.Sleep(100);
+
+                var dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+                if (dispatcherQueue is not null)
+                {
+                    dispatcherQueue.TryEnqueue(() =>
+                    {
+                        ReloadConfiguration(out _);
+                    });
+                }
+                else
+                {
+                    ReloadConfiguration(out _);
+                }
+                return;
+            }
+            catch (IOException)
+            {
+                // Locked, wait and retry
+            }
+        }
     }
 
     private void OnTrayMenuItemInvoked(object? sender, TrayMenuCommand command)
@@ -82,6 +156,12 @@ public sealed class AppHost : IDisposable
                 break;
             case TrayMenuCommand.Shortcuts:
                 new ShortcutSettingsWindow(GetConfiguration, ApplyConfiguration).Activate();
+                break;
+            case TrayMenuCommand.Rules:
+                new RulesWindow(GetConfiguration, ApplyConfiguration).Activate();
+                break;
+            case TrayMenuCommand.Profiles:
+                new ProfilesWindow(GetConfiguration, ApplyConfiguration, _workspaceManager.GetActiveWorkspaces()).Activate();
                 break;
             case TrayMenuCommand.Diagnostics:
                 new DiagnosticsWindow(GetDiagnosticsSnapshot).Activate();
@@ -135,13 +215,40 @@ public sealed class AppHost : IDisposable
         {
             foreach (var workspace in monitorConfig.Workspaces)
             {
+                _workspaceManager.SetWorkspaceDefinition(workspace);
                 _workspaceManager.RenameWorkspace(workspace.Id, workspace.Name);
+            }
+        }
+
+        if (!string.IsNullOrEmpty(config.ActiveProfileName) && 
+            (previousConfig == null || config.ActiveProfileName != previousConfig.ActiveProfileName))
+        {
+            var profile = config.ActiveProfiles.FirstOrDefault(p => string.Equals(p.Name, config.ActiveProfileName, StringComparison.OrdinalIgnoreCase));
+            if (profile != null)
+            {
+                _workspaceManager.ApplyProfile(profile);
             }
         }
 
         try
         {
+            if (_configWatcher is not null)
+            {
+                _configWatcher.EnableRaisingEvents = false;
+            }
+
             _configStore.Save(config);
+
+            if (_configWatcher is not null)
+            {
+                System.Threading.Tasks.Task.Delay(100).ContinueWith(_ =>
+                {
+                    if (_configWatcher is not null)
+                    {
+                        _configWatcher.EnableRaisingEvents = true;
+                    }
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -233,6 +340,7 @@ public sealed class AppHost : IDisposable
                 HotkeyAction.SwitchWorkspace => () => SwitchCurrentMonitor(binding.WorkspaceIndex),
                 HotkeyAction.MoveToWorkspace => () => MoveActiveWindow(binding.WorkspaceIndex),
                 HotkeyAction.ShowAllWindows => ShowAllWindows,
+                HotkeyAction.ShowOverview => ToggleOverview,
                 _ => throw new InvalidOperationException($"Unhandled hotkey action {binding.Action}")
             };
             manager.Register(boundId, binding.Modifiers, binding.VirtualKey, callback);
@@ -260,14 +368,55 @@ public sealed class AppHost : IDisposable
 
     public void ShowAllWindows() => _workspaceManager.ShowAllWindows();
 
+    private void ToggleOverview()
+    {
+        if (_overviewWindows.Count > 0)
+        {
+            foreach (var win in _overviewWindows.ToList())
+            {
+                try { win.Close(); } catch {}
+            }
+            _overviewWindows.Clear();
+        }
+        else
+        {
+            var monitors = _monitorApi.GetMonitors();
+            foreach (var monitor in monitors)
+            {
+                var win = new OverviewWindow(monitor.Id, _workspaceManager, _tracker, _config, monitor);
+                win.Closed += (s, e) =>
+                {
+                    _overviewWindows.Remove(win);
+                };
+                win.Activate();
+                _overviewWindows.Add(win);
+            }
+        }
+    }
+
     public void HandleMessage(uint message, nint wParam) => _hotkeys?.HandleMessage(message, wParam);
 
     public void HandleTrayMessage(uint message, nint wParam, nint lParam) => _trayIcon?.HandleMessage(message, wParam, lParam);
+
+    public bool ReloadConfiguration(out string? error)
+    {
+        var monitors = _monitorApi.GetMonitors();
+        var config = LoadOrDefaultConfiguration(monitors);
+        return ApplyConfiguration(config, out error);
+    }
 
     public void Dispose()
     {
         _eventSource.Stop();
         _hotkeys?.Dispose();
         _trayIcon?.Dispose();
+        _ipcServer?.Dispose();
+        _configWatcher?.Dispose();
+
+        foreach (var win in _overviewWindows.ToList())
+        {
+            try { win.Close(); } catch {}
+        }
+        _overviewWindows.Clear();
     }
 }

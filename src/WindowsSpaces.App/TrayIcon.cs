@@ -6,6 +6,8 @@ public enum TrayMenuCommand
 {
     Settings,
     Shortcuts,
+    Rules,
+    Profiles,
     Diagnostics,
     ShowAllWindows,
     Exit
@@ -81,6 +83,8 @@ public sealed class TrayIcon : IDisposable
     {
         (TrayMenuCommand.Settings, "Settings"),
         (TrayMenuCommand.Shortcuts, "Shortcuts"),
+        (TrayMenuCommand.Rules, "Rules"),
+        (TrayMenuCommand.Profiles, "Profiles"),
         (TrayMenuCommand.Diagnostics, "Diagnostics"),
         (TrayMenuCommand.ShowAllWindows, "Show All Windows"),
         (TrayMenuCommand.Exit, "Exit")

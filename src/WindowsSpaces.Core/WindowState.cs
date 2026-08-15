@@ -9,6 +9,9 @@ public sealed class WindowState
 {
     public required nint Hwnd { get; init; }
     public required int ProcessId { get; init; }
+    public string? ProcessPath { get; set; }
+    public string? WindowClass { get; set; }
+    public string? Title { get; set; }
     public string? MonitorId { get; set; }
     public string? WorkspaceId { get; set; }
     public bool IsVisible { get; set; }

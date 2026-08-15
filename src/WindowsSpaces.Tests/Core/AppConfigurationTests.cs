@@ -24,11 +24,11 @@ public class AppConfigurationTests
     }
 
     [Fact]
-    public void CreateDefault_GivesTheFiveExistingHotkeyBindings()
+    public void CreateDefault_GivesTheSixExistingHotkeyBindings()
     {
         var config = AppConfiguration.CreateDefault(new[] { MonA });
 
-        Assert.Equal(5, config.Hotkeys.Count);
+        Assert.Equal(6, config.Hotkeys.Count);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 1
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x31);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 2
@@ -39,6 +39,8 @@ public class AppConfigurationTests
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x32);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowAllWindows
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x1B);
+        Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowOverview
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x26);
     }
 
     [Fact]
@@ -124,5 +126,50 @@ public class AppConfigurationTests
 
         Assert.True(config.Validate(out var error));
         Assert.Null(error);
+    }
+
+    [Fact]
+    public void Validate_RuleWithNoCriteria_Fails()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA }) with
+        {
+            Rules = new[]
+            {
+                new ApplicationRule("rule-1", "Invalid Rule", null, null, null, "MON-A", 1)
+            }
+        };
+
+        Assert.False(config.Validate(out var error));
+        Assert.Contains("no matching criteria", error);
+    }
+
+    [Fact]
+    public void Validate_RuleWithEmptyName_Fails()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA }) with
+        {
+            Rules = new[]
+            {
+                new ApplicationRule("rule-1", "", "notepad.exe", null, null, "MON-A", 1)
+            }
+        };
+
+        Assert.False(config.Validate(out var error));
+        Assert.Contains("empty rule name", error);
+    }
+
+    [Fact]
+    public void Validate_RuleWithInvalidWorkspaceIndex_Fails()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA }) with
+        {
+            Rules = new[]
+            {
+                new ApplicationRule("rule-1", "Valid Name", "notepad.exe", null, null, "MON-A", 10)
+            }
+        };
+
+        Assert.False(config.Validate(out var error));
+        Assert.Contains("workspace index must be between 1 and", error);
     }
 }

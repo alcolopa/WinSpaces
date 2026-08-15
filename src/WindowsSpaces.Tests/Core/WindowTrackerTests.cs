@@ -173,4 +173,75 @@ public class WindowTrackerTests
         Assert.Equal("MON-A:2", state.WorkspaceId);
         Assert.False(state.IsVisible);
     }
+
+    [Fact]
+    public void Rescan_WithMatchingRule_AssignsToTargetWorkspaceAndMonitor()
+    {
+        var wm = new FakeWindowManager();
+        var events = new FakeWindowEventSource();
+        var monitors = new FakeMonitorManager();
+        var guard = new OperationGuard();
+        var rules = new List<ApplicationRule>
+        {
+            new("rule-1", "Slack Rule", "slack.exe", null, null, "MON-B", 2)
+        };
+        var tracker = new WindowTracker(wm, events, monitors, guard, getRules: () => rules);
+
+        var hwnd = (nint)7;
+        wm.Windows[hwnd] = new WindowState
+        {
+            Hwnd = hwnd,
+            ProcessId = 5,
+            ProcessPath = "C:\\Users\\User\\slack.exe",
+            WindowClass = "SlackClass",
+            Title = "Slack",
+            IsVisible = true,
+            NormalBounds = new Rectangle(1, 1, 1, 1),
+            LastUpdated = DateTimeOffset.UtcNow
+        };
+        monitors.Monitors.Add(new Monitor("MON-A", "\\\\.\\DISPLAY1", new Rectangle(0, 0, 1920, 1080), IsPrimary: true));
+        monitors.Monitors.Add(new Monitor("MON-B", "\\\\.\\DISPLAY2", new Rectangle(1920, 0, 1920, 1080), IsPrimary: false));
+        monitors.WindowToMonitorId[hwnd] = "MON-A";
+
+        tracker.Rescan();
+
+        var state = tracker.TrackedWindows[hwnd];
+        Assert.Equal("MON-B", state.MonitorId);
+        Assert.Equal("MON-B:2", state.WorkspaceId);
+    }
+
+    [Fact]
+    public void Rescan_WithActiveMonitorRule_AssignsToSpawnMonitorTargetWorkspace()
+    {
+        var wm = new FakeWindowManager();
+        var events = new FakeWindowEventSource();
+        var monitors = new FakeMonitorManager();
+        var guard = new OperationGuard();
+        var rules = new List<ApplicationRule>
+        {
+            new("rule-1", "Notepad Rule", "notepad.exe", null, null, "Active", 2)
+        };
+        var tracker = new WindowTracker(wm, events, monitors, guard, getRules: () => rules);
+
+        var hwnd = (nint)7;
+        wm.Windows[hwnd] = new WindowState
+        {
+            Hwnd = hwnd,
+            ProcessId = 5,
+            ProcessPath = "C:\\Windows\\notepad.exe",
+            WindowClass = "Notepad",
+            Title = "Untitled",
+            IsVisible = true,
+            NormalBounds = new Rectangle(1, 1, 1, 1),
+            LastUpdated = DateTimeOffset.UtcNow
+        };
+        monitors.Monitors.Add(new Monitor("MON-A", "\\\\.\\DISPLAY1", new Rectangle(0, 0, 1920, 1080), IsPrimary: true));
+        monitors.WindowToMonitorId[hwnd] = "MON-A";
+
+        tracker.Rescan();
+
+        var state = tracker.TrackedWindows[hwnd];
+        Assert.Equal("MON-A", state.MonitorId);
+        Assert.Equal("MON-A:2", state.WorkspaceId);
+    }
 }

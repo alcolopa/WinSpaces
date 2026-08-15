@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WindowsSpaces.Tests", "src\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WindowsSpaces.Persistence", "src\WindowsSpaces.Persistence\WindowsSpaces.Persistence.csproj", "{69273DF9-C2DA-4F93-BD8C-AFBE2252DFBC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WindowsSpaces.Cli", "src\WindowsSpaces.Cli\WindowsSpaces.Cli.csproj", "{B4106E76-31BD-4894-92BF-902B8D2623E4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -99,6 +101,18 @@ Global
 		{69273DF9-C2DA-4F93-BD8C-AFBE2252DFBC}.Release|x64.Build.0 = Release|Any CPU
 		{69273DF9-C2DA-4F93-BD8C-AFBE2252DFBC}.Release|x86.ActiveCfg = Release|Any CPU
 		{69273DF9-C2DA-4F93-BD8C-AFBE2252DFBC}.Release|x86.Build.0 = Release|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Debug|x64.Build.0 = Debug|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Debug|x86.Build.0 = Debug|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Release|x64.ActiveCfg = Release|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Release|x64.Build.0 = Release|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Release|x86.ActiveCfg = Release|Any CPU
+		{B4106E76-31BD-4894-92BF-902B8D2623E4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -110,5 +124,6 @@ Global
 		{11A0FD21-3D53-4012-B743-ADBF370E03A8} = {9EA0B5F6-D34B-493B-83D6-132EEECB45FF}
 		{F86D3BF7-7375-4C2B-85DD-73BA47C235DF} = {9EA0B5F6-D34B-493B-83D6-132EEECB45FF}
 		{69273DF9-C2DA-4F93-BD8C-AFBE2252DFBC} = {9EA0B5F6-D34B-493B-83D6-132EEECB45FF}
+		{B4106E76-31BD-4894-92BF-902B8D2623E4} = {9EA0B5F6-D34B-493B-83D6-132EEECB45FF}
 	EndGlobalSection
 EndGlobal

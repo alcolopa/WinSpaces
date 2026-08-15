@@ -52,12 +52,48 @@ public sealed class WindowApi : IWindowManager
 
         GetWindowThreadProcessId(hwnd, out var processId);
 
+        var classBuilder = new System.Text.StringBuilder(256);
+        string? windowClass = null;
+        if (GetClassName(hwnd, classBuilder, classBuilder.Capacity) > 0)
+        {
+            windowClass = classBuilder.ToString();
+        }
+
+        var titleBuilder = new System.Text.StringBuilder(256);
+        string? title = null;
+        if (GetWindowText(hwnd, titleBuilder, titleBuilder.Capacity) > 0)
+        {
+            title = titleBuilder.ToString();
+        }
+
+        string? processPath = null;
+        var hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (int)processId);
+        if (hProcess != 0)
+        {
+            try
+            {
+                var size = 1024;
+                var pathBuilder = new System.Text.StringBuilder(size);
+                if (QueryFullProcessImageName(hProcess, 0, pathBuilder, ref size))
+                {
+                    processPath = pathBuilder.ToString();
+                }
+            }
+            finally
+            {
+                CloseHandle(hProcess);
+            }
+        }
+
         var normal = placement.rcNormalPosition;
 
         return new WindowState
         {
             Hwnd = hwnd,
             ProcessId = (int)processId,
+            ProcessPath = processPath,
+            WindowClass = windowClass,
+            Title = title,
             IsVisible = IsWindowVisible(hwnd),
             IsMinimized = placement.showCmd == SW_SHOWMINIMIZED,
             IsMaximized = placement.showCmd == SW_SHOWMAXIMIZED,

@@ -4,5 +4,6 @@ public enum HotkeyAction
 {
     SwitchWorkspace,
     MoveToWorkspace,
-    ShowAllWindows
+    ShowAllWindows,
+    ShowOverview
 }
