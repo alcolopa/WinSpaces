@@ -81,7 +81,7 @@ public sealed class AppHost : IDisposable
                 new ShortcutSettingsWindow(_config, ApplyConfiguration).Activate();
                 break;
             case TrayMenuCommand.Diagnostics:
-                // Wired to open the corresponding window in Task 10.
+                new DiagnosticsWindow(GetDiagnosticsSnapshot).Activate();
                 break;
         }
     }
