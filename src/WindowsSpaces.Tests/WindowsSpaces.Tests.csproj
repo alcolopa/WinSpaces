@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -24,6 +24,7 @@
     <ProjectReference Include="..\WindowsSpaces.Core\WindowsSpaces.Core.csproj" />
     <ProjectReference Include="..\WindowsSpaces.Platform\WindowsSpaces.Platform.csproj" />
     <ProjectReference Include="..\WindowsSpaces.Persistence\WindowsSpaces.Persistence.csproj" />
+    <ProjectReference Include="..\WindowsSpaces.App\WindowsSpaces.App.csproj" />
   </ItemGroup>
 
 </Project>
