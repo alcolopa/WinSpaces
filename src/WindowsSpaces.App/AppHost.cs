@@ -56,7 +56,7 @@ public sealed class AppHost : IDisposable
         }
 
         _hotkeys = new HotkeyManager(messageWindowHwnd);
-        RegisterHotkeys(_config.Hotkeys);
+        RegisterHotkeys(_hotkeys, _config.Hotkeys);
 
         _trayIcon = new TrayIcon(messageWindowHwnd);
         _trayIcon.MenuItemInvoked += OnTrayMenuItemInvoked;
@@ -75,10 +75,13 @@ public sealed class AppHost : IDisposable
                 Environment.Exit(0);
                 break;
             case TrayMenuCommand.Settings:
-                new SettingsWindow(_config, ApplyConfiguration).Activate();
+                // GetConfiguration (not a captured snapshot) so a window opened
+                // after another one saved starts from the current config rather
+                // than clobbering it on save.
+                new SettingsWindow(GetConfiguration, ApplyConfiguration).Activate();
                 break;
             case TrayMenuCommand.Shortcuts:
-                new ShortcutSettingsWindow(_config, ApplyConfiguration).Activate();
+                new ShortcutSettingsWindow(GetConfiguration, ApplyConfiguration).Activate();
                 break;
             case TrayMenuCommand.Diagnostics:
                 new DiagnosticsWindow(GetDiagnosticsSnapshot).Activate();
@@ -108,11 +111,25 @@ public sealed class AppHost : IDisposable
     /// Applies a Settings/Shortcuts save: renames workspaces live and
     /// re-registers hotkeys. Adding/removing workspaces for a monitor is
     /// not applied live — the caller's UI must tell the user to restart.
+    ///
+    /// Never throws. Returns false with a user-displayable <paramref name="error"/>
+    /// when the new hotkeys cannot be registered with the OS (another process
+    /// already owns the combination — something AppConfiguration.Validate()
+    /// cannot detect, as it only checks intra-app conflicts) or when the
+    /// config cannot be persisted. On hotkey failure the PREVIOUS hotkeys are
+    /// restored and nothing is persisted, so a failed save leaves the running
+    /// app exactly as it was.
     /// </summary>
-    public void ApplyConfiguration(AppConfiguration config)
+    public bool ApplyConfiguration(AppConfiguration config, out string? error)
     {
+        var previousConfig = _config;
+
+        if (!TryReplaceHotkeys(config.Hotkeys, previousConfig?.Hotkeys, out error))
+        {
+            return false;
+        }
+
         _config = config;
-        _configStore.Save(config);
 
         foreach (var monitorConfig in config.Monitors)
         {
@@ -122,9 +139,72 @@ public sealed class AppHost : IDisposable
             }
         }
 
+        try
+        {
+            _configStore.Save(config);
+        }
+        catch (Exception ex)
+        {
+            // Save() carries no "never throws" contract (unlike Load()), and an
+            // I/O/ACL failure here must not escape into the WinUI click handler.
+            // The config is already live for this session; only persistence failed.
+            error = $"Settings were applied for this session but could not be saved: {ex.Message}";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Swaps the active hotkey registrations for a new set, rolling back to
+    /// <paramref name="previousBindings"/> if any new registration fails.
+    /// </summary>
+    private bool TryReplaceHotkeys(
+        IReadOnlyList<HotkeyBinding> newBindings,
+        IReadOnlyList<HotkeyBinding>? previousBindings,
+        out string? error)
+    {
+        // The old registrations must be released first: RegisterHotKey refuses a
+        // combination that is already registered, so the new manager could not be
+        // built alongside the old one for any binding they have in common.
         _hotkeys?.Dispose();
-        _hotkeys = new HotkeyManager(_messageWindowHwnd);
-        RegisterHotkeys(config.Hotkeys);
+        _hotkeys = null;
+
+        var candidate = new HotkeyManager(_messageWindowHwnd);
+        try
+        {
+            RegisterHotkeys(candidate, newBindings);
+        }
+        catch (InvalidOperationException ex)
+        {
+            candidate.Dispose();
+
+            error = $"Could not register the requested shortcuts (another application may already use one of them): {ex.Message}";
+
+            // Restore the previously working set so the app is never left with
+            // no hotkeys at all.
+            if (previousBindings is not null)
+            {
+                var rollback = new HotkeyManager(_messageWindowHwnd);
+                try
+                {
+                    RegisterHotkeys(rollback, previousBindings);
+                    _hotkeys = rollback;
+                }
+                catch (InvalidOperationException rollbackEx)
+                {
+                    rollback.Dispose();
+                    error += $" The previous shortcuts could not be restored either: {rollbackEx.Message}";
+                }
+            }
+
+            return false;
+        }
+
+        _hotkeys = candidate;
+        error = null;
+        return true;
     }
 
     public AppConfiguration GetConfiguration() => _config;
@@ -142,7 +222,7 @@ public sealed class AppHost : IDisposable
         return new DiagnosticsSnapshot(windows, monitors);
     }
 
-    private void RegisterHotkeys(IReadOnlyList<HotkeyBinding> bindings)
+    private void RegisterHotkeys(HotkeyManager manager, IReadOnlyList<HotkeyBinding> bindings)
     {
         var id = 1;
         foreach (var binding in bindings)
@@ -155,7 +235,7 @@ public sealed class AppHost : IDisposable
                 HotkeyAction.ShowAllWindows => ShowAllWindows,
                 _ => throw new InvalidOperationException($"Unhandled hotkey action {binding.Action}")
             };
-            _hotkeys!.Register(boundId, binding.Modifiers, binding.VirtualKey, callback);
+            manager.Register(boundId, binding.Modifiers, binding.VirtualKey, callback);
         }
     }
 
