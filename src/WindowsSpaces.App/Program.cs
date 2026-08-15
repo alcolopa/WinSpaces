@@ -73,6 +73,13 @@ internal static class Program
         // hotkey/tray behavior is unchanged; the only difference is that the
         // XAML dispatcher is now initialized on the same thread, allowing
         // Microsoft.UI.Xaml.Window instances to be created later.
+        //
+        // This project sets DISABLE_XAML_GENERATED_MAIN, so the C#/WinRT COM
+        // interop layer that the XAML-generated Main would have initialized
+        // must be initialized here by hand, before Application.Start — without
+        // it XAML type activation fails.
+        global::WinRT.ComWrappersSupport.InitializeComWrappers();
+
         Microsoft.UI.Xaml.Application.Start(_ =>
         {
             var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
@@ -121,8 +128,11 @@ internal static class Program
             {
                 _host.HandleMessage(msg.message, msg.wParam);
             }
-            else if (msg.message == WM_APP)
+            else if (msg.message == WM_APP && msg.hwnd == hwnd)
             {
+                // Only messages targeting our own message-only window are tray
+                // callbacks; WinUI plumbing on this same thread also uses the
+                // WM_APP range for its own windows.
                 _host.HandleTrayMessage(msg.message, msg.wParam, msg.lParam);
             }
             TranslateMessage(ref msg);
