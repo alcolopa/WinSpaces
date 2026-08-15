@@ -41,7 +41,7 @@ public sealed class TrayIcon : IDisposable
     private const uint TrayCallbackMessage = WM_APP;
     private const uint WM_RBUTTONUP = 0x0205;
     private const uint WM_LBUTTONUP = 0x0202;
-    private const uint WM_COMMAND = 0x0111;
+    private const uint WM_NULL = 0x0000;
 
     private const uint TPM_RIGHTBUTTON = 0x0002;
     private const uint TPM_RETURNCMD = 0x0100;
@@ -66,6 +66,9 @@ public sealed class TrayIcon : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(nint hWnd, uint msg, nint wParam, nint lParam);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
@@ -139,6 +142,13 @@ public sealed class TrayIcon : IDisposable
             GetCursorPos(out var cursor);
             SetForegroundWindow(_hwnd);
             var selectedId = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, cursor.X, cursor.Y, 0, _hwnd, 0);
+
+            // Documented tray-icon idiom (MSDN sample): the owner window needs a
+            // message posted to it right after TrackPopupMenu for the menu to
+            // dismiss properly when the user clicks away without picking an item.
+            // Especially needed here because _hwnd is a message-only window, which
+            // SetForegroundWindow can never actually bring to the foreground.
+            PostMessage(_hwnd, WM_NULL, 0, 0);
 
             if (selectedId > 0)
             {
