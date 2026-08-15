@@ -4,3 +4,7 @@ obj/
 .vs/
 
 .worktrees/
+.claude/
+.superpowers/
+docs/
+TestResults/
