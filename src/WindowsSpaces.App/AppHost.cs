@@ -1,3 +1,4 @@
+using WindowsSpaces.App.Views;
 using WindowsSpaces.Core;
 using WindowsSpaces.Persistence;
 using WindowsSpaces.Platform.Win32;
@@ -74,9 +75,11 @@ public sealed class AppHost : IDisposable
                 Environment.Exit(0);
                 break;
             case TrayMenuCommand.Settings:
+                new SettingsWindow(_config, ApplyConfiguration).Activate();
+                break;
             case TrayMenuCommand.Shortcuts:
             case TrayMenuCommand.Diagnostics:
-                // Wired to open the corresponding window in Task 8-10.
+                // Wired to open the corresponding window in Task 9-10.
                 break;
         }
     }
