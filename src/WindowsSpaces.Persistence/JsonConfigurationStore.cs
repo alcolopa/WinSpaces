@@ -32,7 +32,11 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             var json = File.ReadAllText(_filePath);
             config = JsonSerializer.Deserialize<AppConfiguration>(json, Options);
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        // Deliberately broad: Load() is contractually fail-open, and the failure
+        // modes are open-ended (JsonException, IOException, UnauthorizedAccessException,
+        // NotSupportedException, ...). Any of them must yield defaults rather than
+        // crash startup, so filtering by exception type here would be a bug.
+        catch (Exception)
         {
             return null;
         }
