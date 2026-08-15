@@ -70,6 +70,7 @@ public sealed class AppHost : IDisposable
                 ShowAllWindows();
                 break;
             case TrayMenuCommand.Exit:
+                Dispose();
                 Environment.Exit(0);
                 break;
             case TrayMenuCommand.Settings:
