@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WindowsSpaces.Core\WindowsSpaces.Core.csproj" />
     <ProjectReference Include="..\WindowsSpaces.Platform\WindowsSpaces.Platform.csproj" />
+    <ProjectReference Include="..\WindowsSpaces.Persistence\WindowsSpaces.Persistence.csproj" />
   </ItemGroup>
 
 </Project>
