@@ -62,10 +62,28 @@ internal static class Program
     }
 
     private static AppHost? _host;
+    private static App? _app;
     private static WndProc? _wndProcDelegate;
 
     [STAThread]
     private static void Main()
+    {
+        // Bootstrap the WinUI3 framework on this STA thread. The callback runs
+        // the existing raw Win32 message-only window + GetMessage pump, so
+        // hotkey/tray behavior is unchanged; the only difference is that the
+        // XAML dispatcher is now initialized on the same thread, allowing
+        // Microsoft.UI.Xaml.Window instances to be created later.
+        Microsoft.UI.Xaml.Application.Start(_ =>
+        {
+            var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
+                Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+            System.Threading.SynchronizationContext.SetSynchronizationContext(context);
+            _app = new App();
+            RunMessageWindowLoop();
+        });
+    }
+
+    private static void RunMessageWindowLoop()
     {
         _wndProcDelegate = WndProcHandler;
         var hInstance = GetModuleHandle(null);
@@ -91,6 +109,11 @@ internal static class Program
 
         _host = new AppHost();
         _host.Start(hwnd);
+
+        if (_app is not null)
+        {
+            _app.Host = _host;
+        }
 
         while (GetMessage(out var msg, 0, 0, 0) > 0)
         {
