@@ -106,6 +106,7 @@ public sealed class TrayIcon : IDisposable
     private NOTIFYICONDATA _data;
     private bool _added;
     private nint _hIcon;
+    private bool _suppressNextClick;
 
     public event EventHandler<TrayMenuCommand>? MenuItemInvoked;
     public event EventHandler? DoubleClicked;
@@ -149,8 +150,26 @@ public sealed class TrayIcon : IDisposable
         var mouseMessage = (uint)lParam;
         if (mouseMessage == WM_LBUTTONDBLCLK)
         {
+            // Windows sends LBUTTONUP, then LBUTTONDBLCLK, then a second
+            // LBUTTONUP for a double-click — suppress that trailing LBUTTONUP
+            // so a double-click doesn't also fire the single-click action.
+            _suppressNextClick = true;
             DoubleClicked?.Invoke(this, EventArgs.Empty);
             MenuItemInvoked?.Invoke(this, TrayMenuCommand.Settings);
+            return;
+        }
+
+        // A plain single click is the click most users make on a tray icon —
+        // without this, clicking it did nothing at all and only the
+        // easy-to-miss double-click or right-click-menu opened anything.
+        if (mouseMessage == WM_LBUTTONUP)
+        {
+            if (_suppressNextClick)
+            {
+                _suppressNextClick = false;
+                return;
+            }
+            MenuItemInvoked?.Invoke(this, TrayMenuCommand.Shortcuts);
             return;
         }
 

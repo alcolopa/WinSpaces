@@ -31,12 +31,36 @@ public sealed class WindowApi : IWindowManager
         return result;
     }
 
+    // Shell chrome (desktop, taskbar, Start) shows up in EnumWindows like any
+    // other top-level window — visible, unowned, not a tool window, and (for
+    // Progman at least) with a non-empty title — so title/style checks alone
+    // let it slip through and get hidden/shown by workspace switches. If the
+    // app crashes between hiding and re-showing it, the taskbar/desktop stay
+    // gone until Explorer is manually restarted. Exclude these classes by
+    // name so they're never tracked at all.
+    private static readonly HashSet<string> ShellWindowClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Progman",
+        "WorkerW",
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+        "Button" // classic Start button, present on some configurations
+    };
+
     private static bool IsManagedTopLevelWindow(nint hWnd)
     {
         if (!IsWindowVisible(hWnd)) return false;
         if (GetWindow(hWnd, GW_OWNER) != 0) return false;
         if ((GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) return false;
         if (GetWindowTextLength(hWnd) == 0) return false;
+
+        var classBuilder = new System.Text.StringBuilder(256);
+        if (GetClassName(hWnd, classBuilder, classBuilder.Capacity) > 0 &&
+            ShellWindowClasses.Contains(classBuilder.ToString()))
+        {
+            return false;
+        }
+
         return true;
     }
 

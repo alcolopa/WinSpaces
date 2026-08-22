@@ -7,11 +7,22 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <ListView x:Name="MonitorsList" Grid.Row="0"/>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="1" Spacing="4" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+            <TextBlock Text="Configuration sync" FontWeight="SemiBold"/>
+            <TextBlock Text="Point config at a folder synced by OneDrive, Dropbox, etc. to share settings across PCs." Opacity="0.7" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock x:Name="SyncFolderText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="360"/>
+                <Button x:Name="ChooseSyncFolderButton" Content="Choose folder..." Click="OnChooseSyncFolderClicked"/>
+                <Button x:Name="UseDefaultLocationButton" Content="Use default location" Click="OnUseDefaultLocationClicked"/>
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
             <TextBlock x:Name="ErrorText" Foreground="Red" VerticalAlignment="Center"/>
             <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked"/>
             <Button x:Name="CancelButton" Content="Cancel" Click="OnCancelClicked"/>

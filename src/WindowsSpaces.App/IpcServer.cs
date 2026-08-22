@@ -64,8 +64,9 @@ public sealed class IpcServer : IDisposable
             {
                 break;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                CrashLogger.Log("IPC listen loop threw", ex);
                 await Task.Delay(100, _cts.Token);
             }
         }
@@ -84,6 +85,7 @@ public sealed class IpcServer : IDisposable
             }
             catch (Exception ex)
             {
+                CrashLogger.Log($"IPC command '{request.Command}' threw", ex);
                 tcs.SetResult(new IpcResponse(false, $"Error executing command: {ex.Message}", null));
             }
         });

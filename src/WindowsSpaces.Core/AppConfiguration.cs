@@ -31,7 +31,10 @@ public sealed record AppConfiguration(
             new(HotkeyAction.SwitchWorkspace, 2, ModifierKeys.Control, 0x32),
             new(HotkeyAction.MoveToWorkspace, 1, ModifierKeys.Control | ModifierKeys.Shift, 0x31),
             new(HotkeyAction.MoveToWorkspace, 2, ModifierKeys.Control | ModifierKeys.Shift, 0x32),
-            new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Shift, 0x1B),
+            // VK_HOME (0x24), not VK_ESCAPE: Ctrl+Shift+Esc is Windows' own
+            // reserved Task Manager shortcut, so RegisterHotKey for it always
+            // fails with ERROR_HOTKEY_ALREADY_REGISTERED.
+            new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Shift, 0x24),
             new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control, 0x26)
         };
 

@@ -20,22 +20,47 @@ public sealed class AppHost : IDisposable
     private readonly OperationGuard _guard = new();
     private readonly WindowTracker _tracker;
     private readonly WorkspaceManager _workspaceManager;
-    private readonly IConfigurationStore _configStore;
+    private IConfigurationStore _configStore;
     private HotkeyManager? _hotkeys;
     private TrayIcon? _trayIcon;
     private AppConfiguration _config = null!;
     private nint _messageWindowHwnd;
     private IpcServer? _ipcServer;
-    private readonly string _configFilePath;
+    private string _configFilePath;
     private FileSystemWatcher? _configWatcher;
     private readonly List<OverviewWindow> _overviewWindows = new();
+    private readonly ConfigSyncLocation? _syncLocation;
 
     public AppHost() : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WindowsSpaces", "config.json"))
     {
     }
 
-    public AppHost(string configFilePath) : this(new JsonConfigurationStore(configFilePath), configFilePath)
+    /// <summary>
+    /// <paramref name="defaultConfigFilePath"/> is where config lives absent
+    /// any sync folder override — a local-only pointer file next to it
+    /// (see <see cref="ConfigSyncLocation"/>) records the override, if any,
+    /// and is consulted here to pick the actual config path.
+    /// </summary>
+    public AppHost(string defaultConfigFilePath)
     {
+        var pointerFilePath = Path.Combine(Path.GetDirectoryName(defaultConfigFilePath) ?? ".", "sync-location.txt");
+        _syncLocation = new ConfigSyncLocation(pointerFilePath, defaultConfigFilePath);
+        _configFilePath = _syncLocation.ResolveConfigFilePath();
+        _configStore = new JsonConfigurationStore(_configFilePath);
+
+        _tracker = new WindowTracker(_windowApi, _eventSource, _monitorApi, _guard,
+            getRules: () => _config?.ActiveRules ?? Array.Empty<ApplicationRule>(),
+            getActiveWorkspace: monitorId => _workspaceManager?.GetActiveWorkspace(monitorId),
+            tryConsumeRestoration: (string path, string winClass, string title, out WindowProfileState? restoration) =>
+            {
+                if (_workspaceManager is not null)
+                {
+                    return _workspaceManager.TryConsumeRestoration(path, winClass, title, out restoration);
+                }
+                restoration = null;
+                return false;
+            });
+        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager());
     }
 
     public WorkspaceManager WorkspaceManager => _workspaceManager;
@@ -46,6 +71,7 @@ public sealed class AppHost : IDisposable
     {
         _configStore = configStore;
         _configFilePath = configFilePath;
+        _syncLocation = null;
         _tracker = new WindowTracker(_windowApi, _eventSource, _monitorApi, _guard,
             getRules: () => _config?.ActiveRules ?? Array.Empty<ApplicationRule>(),
             getActiveWorkspace: monitorId => _workspaceManager?.GetActiveWorkspace(monitorId),
@@ -80,12 +106,20 @@ public sealed class AppHost : IDisposable
             _workspaceManager.SwitchWorkspace(monitorConfig.MonitorId, monitorConfig.Workspaces[0].Id);
         }
 
-        _hotkeys = new HotkeyManager(messageWindowHwnd);
-        RegisterHotkeys(_hotkeys, _config.Hotkeys);
+        // Startup must never crash the whole app over a hotkey conflict (with
+        // Windows itself or another app) — go through the same rollback-safe
+        // path ApplyConfiguration uses rather than a raw RegisterHotkeys call
+        // that would throw out of this native Application.Start callback.
+        TryReplaceHotkeys(_config.Hotkeys, previousBindings: null, out var hotkeyError);
 
         _trayIcon = new TrayIcon(messageWindowHwnd);
         _trayIcon.MenuItemInvoked += OnTrayMenuItemInvoked;
         _trayIcon.Show();
+
+        if (hotkeyError is not null)
+        {
+            _trayIcon.SetTooltip($"Windows Spaces — shortcuts unavailable: {hotkeyError}");
+        }
 
         var dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         _ipcServer = new IpcServer(this, dispatcherQueue);
@@ -152,7 +186,7 @@ public sealed class AppHost : IDisposable
                 // GetConfiguration (not a captured snapshot) so a window opened
                 // after another one saved starts from the current config rather
                 // than clobbering it on save.
-                new SettingsWindow(GetConfiguration, ApplyConfiguration).Activate();
+                new SettingsWindow(GetConfiguration, ApplyConfiguration, GetConfigSyncFolder, SetConfigSyncFolder).Activate();
                 break;
             case TrayMenuCommand.Shortcuts:
                 new ShortcutSettingsWindow(GetConfiguration, ApplyConfiguration).Activate();
@@ -316,6 +350,57 @@ public sealed class AppHost : IDisposable
 
     public AppConfiguration GetConfiguration() => _config;
 
+    /// <summary>
+    /// The folder config is currently synced through, or null when using the
+    /// default per-machine location.
+    /// </summary>
+    public string? GetConfigSyncFolder() => _syncLocation?.GetSyncFolder();
+
+    /// <summary>
+    /// Relocates persisted configuration to <paramref name="folder"/> (or
+    /// back to the default per-machine location when null/empty). Copies the
+    /// current in-memory config into the new location first so relocating
+    /// never loses local settings, then restarts the file watcher there.
+    /// Never throws — mirrors <see cref="ApplyConfiguration"/>'s TrySave-style
+    /// contract.
+    /// </summary>
+    public bool SetConfigSyncFolder(string? folder, out string? error)
+    {
+        if (_syncLocation is null)
+        {
+            error = "Configuration sync is not available for this session.";
+            return false;
+        }
+
+        var normalizedFolder = string.IsNullOrWhiteSpace(folder) ? null : folder;
+        var newPath = normalizedFolder is null
+            ? _syncLocation.DefaultConfigFilePath
+            : Path.Combine(normalizedFolder, "config.json");
+
+        try
+        {
+            var newStore = new JsonConfigurationStore(newPath);
+            newStore.Save(_config);
+
+            _configWatcher?.Dispose();
+            _configWatcher = null;
+
+            _configStore = newStore;
+            _configFilePath = newPath;
+            _syncLocation.SetSyncFolder(normalizedFolder);
+
+            InitializeConfigWatcher();
+        }
+        catch (Exception ex)
+        {
+            error = $"Could not move configuration to the new location: {ex.Message}";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
     public DiagnosticsSnapshot GetDiagnosticsSnapshot()
     {
         var windows = _tracker.TrackedWindows.Values
@@ -343,7 +428,28 @@ public sealed class AppHost : IDisposable
                 HotkeyAction.ShowOverview => ToggleOverview,
                 _ => throw new InvalidOperationException($"Unhandled hotkey action {binding.Action}")
             };
-            manager.Register(boundId, binding.Modifiers, binding.VirtualKey, callback);
+
+            // Hotkey callbacks run synchronously on the Win32 message-pump
+            // thread (see HotkeyManager.HandleMessage) with no other
+            // handler above them — an unhandled exception here (e.g. a
+            // stale window handle from rapid workspace switching) crashes
+            // the whole process. Catch and log so a repro leaves evidence
+            // instead of just vanishing, without turning a single bad
+            // switch into a dead app.
+            var boundBinding = binding;
+            Action loggedCallback = () =>
+            {
+                try
+                {
+                    callback();
+                }
+                catch (Exception ex)
+                {
+                    CrashLogger.Log($"Hotkey callback threw for action {boundBinding.Action} (workspace index {boundBinding.WorkspaceIndex})", ex);
+                }
+            };
+
+            manager.Register(boundId, binding.Modifiers, binding.VirtualKey, loggedCallback);
         }
     }
 

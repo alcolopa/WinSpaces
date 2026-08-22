@@ -122,6 +122,26 @@ internal static class Program
             _app.Host = _host;
         }
 
+        // Primary reliability rule (spec §11): a window visible in the wrong
+        // workspace beats one that's permanently gone. An unhandled exception
+        // here would otherwise kill the process mid-transition and leave
+        // whatever this tick just hid (possibly a whole monitor's windows)
+        // hidden forever, since nothing else ever un-hides them.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex)
+            {
+                CrashLogger.Log("AppDomain.UnhandledException (process is about to terminate)", ex);
+            }
+            try { _host?.ShowAllWindows(); } catch { /* best effort: process is already going down */ }
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            CrashLogger.Log("TaskScheduler.UnobservedTaskException", e.Exception);
+            try { _host?.ShowAllWindows(); } catch { /* best effort */ }
+            e.SetObserved();
+        };
+
         while (GetMessage(out var msg, 0, 0, 0) > 0)
         {
             if (msg.message == WM_HOTKEY)
