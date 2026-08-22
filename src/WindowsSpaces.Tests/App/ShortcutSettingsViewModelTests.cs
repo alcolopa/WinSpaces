@@ -30,7 +30,7 @@ public class ShortcutSettingsViewModelTests
         var config = AppConfiguration.CreateDefault(new[] { MonA });
         var vm = new ShortcutSettingsViewModel(config);
 
-        vm.Rebind(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt, 0x32);
+        vm.Rebind(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control, 0x32);
 
         var saved = vm.TrySave(out _, out var error);
 

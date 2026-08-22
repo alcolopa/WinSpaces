@@ -30,17 +30,17 @@ public class AppConfigurationTests
 
         Assert.Equal(6, config.Hotkeys.Count);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 1
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x31);
+            && h.Modifiers == ModifierKeys.Control && h.VirtualKey == 0x31);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 2
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x32);
+            && h.Modifiers == ModifierKeys.Control && h.VirtualKey == 0x32);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == 1
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x31);
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && h.VirtualKey == 0x31);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == 2
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x32);
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && h.VirtualKey == 0x32);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowAllWindows
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x1B);
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && h.VirtualKey == 0x1B);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowOverview
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x26);
+            && h.Modifiers == ModifierKeys.Control && h.VirtualKey == 0x26);
     }
 
     [Fact]

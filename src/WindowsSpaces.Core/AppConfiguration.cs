@@ -27,12 +27,12 @@ public sealed record AppConfiguration(
 
         var hotkeys = new List<HotkeyBinding>
         {
-            new(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt, 0x31),
-            new(HotkeyAction.SwitchWorkspace, 2, ModifierKeys.Control | ModifierKeys.Alt, 0x32),
-            new(HotkeyAction.MoveToWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x31),
-            new(HotkeyAction.MoveToWorkspace, 2, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x32),
-            new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x1B),
-            new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control | ModifierKeys.Alt, 0x26)
+            new(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control, 0x31),
+            new(HotkeyAction.SwitchWorkspace, 2, ModifierKeys.Control, 0x32),
+            new(HotkeyAction.MoveToWorkspace, 1, ModifierKeys.Control | ModifierKeys.Shift, 0x31),
+            new(HotkeyAction.MoveToWorkspace, 2, ModifierKeys.Control | ModifierKeys.Shift, 0x32),
+            new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Shift, 0x1B),
+            new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control, 0x26)
         };
 
         return new AppConfiguration(

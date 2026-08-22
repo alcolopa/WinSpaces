@@ -34,6 +34,7 @@ public sealed class TrayIcon : IDisposable
     }
 
     private const int NIF_MESSAGE = 0x1;
+    private const int NIF_ICON = 0x2;
     private const int NIF_TIP = 0x4;
     private const int NIM_ADD = 0x0;
     private const int NIM_MODIFY = 0x1;
@@ -41,8 +42,10 @@ public sealed class TrayIcon : IDisposable
 
     private const uint WM_APP = 0x8000;
     private const uint TrayCallbackMessage = WM_APP;
-    private const uint WM_RBUTTONUP = 0x0205;
+    private const uint WM_LBUTTONDOWN = 0x0201;
     private const uint WM_LBUTTONUP = 0x0202;
+    private const uint WM_LBUTTONDBLCLK = 0x0203;
+    private const uint WM_RBUTTONUP = 0x0205;
     private const uint WM_NULL = 0x0000;
 
     private const uint TPM_RIGHTBUTTON = 0x0002;
@@ -50,6 +53,15 @@ public sealed class TrayIcon : IDisposable
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern bool Shell_NotifyIcon(int dwMessage, ref NOTIFYICONDATA lpData);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint ExtractIcon(nint hInst, string lpszExeFileName, int nIconIndex);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint GetModuleHandle(string? lpModuleName);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(nint hIcon);
 
     [DllImport("user32.dll")]
     private static extern nint CreatePopupMenu();
@@ -93,20 +105,27 @@ public sealed class TrayIcon : IDisposable
     private readonly nint _hwnd;
     private NOTIFYICONDATA _data;
     private bool _added;
+    private nint _hIcon;
 
     public event EventHandler<TrayMenuCommand>? MenuItemInvoked;
+    public event EventHandler? DoubleClicked;
 
     public TrayIcon(nint hwnd)
     {
         _hwnd = hwnd;
+
+        var hInst = GetModuleHandle(null);
+        var exePath = Environment.ProcessPath ?? string.Empty;
+        _hIcon = ExtractIcon(hInst, exePath, 0);
+
         _data = new NOTIFYICONDATA
         {
             cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
             hWnd = hwnd,
             uID = 1,
-            uFlags = NIF_MESSAGE | NIF_TIP,
+            uFlags = NIF_MESSAGE | NIF_TIP | (_hIcon != 0 ? NIF_ICON : 0),
             uCallbackMessage = (int)TrayCallbackMessage,
-            hIcon = 0,
+            hIcon = _hIcon,
             szTip = "Windows Spaces"
         };
     }
@@ -128,9 +147,17 @@ public sealed class TrayIcon : IDisposable
         if (message != TrayCallbackMessage) return;
 
         var mouseMessage = (uint)lParam;
-        if (mouseMessage is not (WM_RBUTTONUP or WM_LBUTTONUP)) return;
+        if (mouseMessage == WM_LBUTTONDBLCLK)
+        {
+            DoubleClicked?.Invoke(this, EventArgs.Empty);
+            MenuItemInvoked?.Invoke(this, TrayMenuCommand.Settings);
+            return;
+        }
 
-        ShowContextMenuAndInvoke();
+        if (mouseMessage == WM_RBUTTONUP)
+        {
+            ShowContextMenuAndInvoke();
+        }
     }
 
     private void ShowContextMenuAndInvoke()
@@ -168,5 +195,10 @@ public sealed class TrayIcon : IDisposable
     public void Dispose()
     {
         if (_added) Shell_NotifyIcon(NIM_DELETE, ref _data);
+        if (_hIcon != 0)
+        {
+            DestroyIcon(_hIcon);
+            _hIcon = 0;
+        }
     }
 }
