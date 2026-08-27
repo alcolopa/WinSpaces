@@ -38,9 +38,9 @@ public class AppConfigurationTests
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == 2
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x32);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowAllWindows
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x1B);
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && h.VirtualKey == 0x24);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowOverview
-            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x26);
+            && h.Modifiers == ModifierKeys.Control && h.VirtualKey == 0x26);
     }
 
     [Fact]

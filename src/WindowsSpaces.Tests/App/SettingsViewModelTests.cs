@@ -145,4 +145,57 @@ public class SettingsViewModelTests
         Assert.Equal("Space 1", monitor.Workspaces[0].Name);
         Assert.Equal("Space 2", monitor.Workspaces[1].Name);
     }
+
+    [Fact]
+    public void Rebind_ChangesHotkeyBinding()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        vm.Rebind(HotkeyAction.SwitchWorkspace, workspaceIndex: 1, ModifierKeys.Alt, virtualKey: 0x39);
+
+        var binding = vm.Bindings.Single(b => b.Action == HotkeyAction.SwitchWorkspace && b.WorkspaceIndex == 1);
+        Assert.Equal(ModifierKeys.Alt, binding.Modifiers);
+        Assert.Equal(0x39, binding.VirtualKey);
+    }
+
+    [Fact]
+    public void ValidateHotkeys_DetectsConflict()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        // collides with the default SwitchWorkspace-2 binding (Ctrl+Alt+2)
+        vm.Rebind(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt, 0x32);
+
+        var item = vm.HotkeyItems.First(h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 1);
+        Assert.True(item.HasConflict);
+        Assert.NotNull(item.ConflictMessage);
+    }
+
+    [Fact]
+    public void ResetHotkeysToDefault_RestoresDefaults()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        vm.Rebind(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Alt | ModifierKeys.Shift, 0x41);
+        vm.ResetHotkeysToDefault();
+
+        var binding = vm.Bindings.Single(b => b.Action == HotkeyAction.SwitchWorkspace && b.WorkspaceIndex == 1);
+        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, binding.Modifiers);
+        Assert.Equal(0x31, binding.VirtualKey);
+    }
+
+    [Fact]
+    public void AddWorkspace_AddsHotkeysForNewIndex()
+    {
+        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var vm = new SettingsViewModel(config);
+
+        vm.AddWorkspace("MON-A");
+
+        Assert.Contains(vm.HotkeyItems, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 3);
+        Assert.Contains(vm.HotkeyItems, h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == 3);
+    }
 }

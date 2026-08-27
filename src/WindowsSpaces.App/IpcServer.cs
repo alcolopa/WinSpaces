@@ -64,8 +64,9 @@ public sealed class IpcServer : IDisposable
             {
                 break;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                CrashLogger.Log("IPC listen loop threw", ex);
                 await Task.Delay(100, _cts.Token);
             }
         }
@@ -84,6 +85,7 @@ public sealed class IpcServer : IDisposable
             }
             catch (Exception ex)
             {
+                CrashLogger.Log($"IPC command '{request.Command}' threw", ex);
                 tcs.SetResult(new IpcResponse(false, $"Error executing command: {ex.Message}", null));
             }
         });
@@ -113,7 +115,10 @@ public sealed class IpcServer : IDisposable
                     }).ToList(),
                     Windows = snapshot.Windows.Select(w => new
                     {
-                        w.Hwnd,
+                        // System.Text.Json has no built-in converter for nint,
+                        // and threw NotSupportedException here, failing the
+                        // whole 'status' command.
+                        Hwnd = (long)w.Hwnd,
                         w.ProcessId,
                         w.MonitorId,
                         w.WorkspaceId,

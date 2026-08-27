@@ -30,6 +30,7 @@ public class ShortcutSettingsViewModelTests
         var config = AppConfiguration.CreateDefault(new[] { MonA });
         var vm = new ShortcutSettingsViewModel(config);
 
+        // collides with the default SwitchWorkspace-2 binding (Ctrl+Alt+2)
         vm.Rebind(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt, 0x32);
 
         var saved = vm.TrySave(out _, out var error);

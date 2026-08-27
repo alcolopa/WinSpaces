@@ -1,10 +1,13 @@
 namespace WindowsSpaces.Core;
 
+[Flags]
 public enum ModifierKeys
 {
-    Control = 0x2,
+    None = 0x0,
     Alt = 0x1,
-    Shift = 0x4
+    Control = 0x2,
+    Shift = 0x4,
+    Win = 0x8
 }
 
 public interface IHotkeyManager

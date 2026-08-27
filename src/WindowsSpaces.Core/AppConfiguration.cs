@@ -27,12 +27,18 @@ public sealed record AppConfiguration(
 
         var hotkeys = new List<HotkeyBinding>
         {
+            // Ctrl+Alt+N per spec §"Default shortcuts". Plain Ctrl+N is not
+            // usable as a global default: RegisterHotKey takes it system-wide
+            // and every browser/editor loses its tab-switching shortcut.
             new(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt, 0x31),
             new(HotkeyAction.SwitchWorkspace, 2, ModifierKeys.Control | ModifierKeys.Alt, 0x32),
             new(HotkeyAction.MoveToWorkspace, 1, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x31),
             new(HotkeyAction.MoveToWorkspace, 2, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x32),
-            new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x1B),
-            new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control | ModifierKeys.Alt, 0x26)
+            // VK_HOME (0x24), not VK_ESCAPE: Ctrl+Shift+Esc is Windows' own
+            // reserved Task Manager shortcut, so RegisterHotKey for it always
+            // fails with ERROR_HOTKEY_ALREADY_REGISTERED.
+            new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Shift, 0x24),
+            new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control, 0x26)
         };
 
         return new AppConfiguration(

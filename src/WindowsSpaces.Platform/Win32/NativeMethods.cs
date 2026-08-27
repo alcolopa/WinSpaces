@@ -37,6 +37,19 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern nint MonitorFromWindow(nint hwnd, uint dwFlags);
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CURSORPOINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    internal static extern nint MonitorFromPoint(CURSORPOINT pt, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    internal static extern bool GetCursorPos(out CURSORPOINT lpPoint);
+
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, nint lParam);
 

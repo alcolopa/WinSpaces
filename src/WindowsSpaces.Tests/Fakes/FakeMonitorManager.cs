@@ -16,4 +16,12 @@ public sealed class FakeMonitorManager : IMonitorManager
         WindowToMonitorId.TryGetValue(hwnd, out var monitorId)
             ? Monitors.FirstOrDefault(m => m.Id == monitorId)
             : null;
+
+    /// <summary>Set by tests to control which monitor the pointer is "on".</summary>
+    public string? MonitorIdUnderCursor { get; set; }
+
+    public Monitor? GetMonitorUnderCursor() =>
+        MonitorIdUnderCursor is null
+            ? null
+            : Monitors.FirstOrDefault(m => m.Id == MonitorIdUnderCursor);
 }

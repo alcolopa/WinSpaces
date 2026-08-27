@@ -31,12 +31,36 @@ public sealed class WindowApi : IWindowManager
         return result;
     }
 
+    // Shell chrome (desktop, taskbar, Start) shows up in EnumWindows like any
+    // other top-level window — visible, unowned, not a tool window, and (for
+    // Progman at least) with a non-empty title — so title/style checks alone
+    // let it slip through and get hidden/shown by workspace switches. If the
+    // app crashes between hiding and re-showing it, the taskbar/desktop stay
+    // gone until Explorer is manually restarted. Exclude these classes by
+    // name so they're never tracked at all.
+    private static readonly HashSet<string> ShellWindowClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Progman",
+        "WorkerW",
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+        "Button" // classic Start button, present on some configurations
+    };
+
     private static bool IsManagedTopLevelWindow(nint hWnd)
     {
         if (!IsWindowVisible(hWnd)) return false;
         if (GetWindow(hWnd, GW_OWNER) != 0) return false;
         if ((GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) return false;
         if (GetWindowTextLength(hWnd) == 0) return false;
+
+        var classBuilder = new System.Text.StringBuilder(256);
+        if (GetClassName(hWnd, classBuilder, classBuilder.Capacity) > 0 &&
+            ShellWindowClasses.Contains(classBuilder.ToString()))
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -47,7 +71,9 @@ public sealed class WindowApi : IWindowManager
         var placement = new WINDOWPLACEMENT { length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
         if (!GetWindowPlacement(hwnd, ref placement))
         {
-            throw new InvalidOperationException($"GetWindowPlacement failed for {hwnd}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            if (err == 1400 || err == 5 || err == 0 || !IsWindow(hwnd)) return null;
+            return null;
         }
 
         GetWindowThreadProcessId(hwnd, out var processId);
@@ -124,9 +150,12 @@ public sealed class WindowApi : IWindowManager
 
     public void Move(nint hwnd, Rectangle bounds)
     {
+        if (!IsWindow(hwnd)) return;
         if (!SetWindowPos(hwnd, 0, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_NOACTIVATE))
         {
-            throw new InvalidOperationException($"SetWindowPos failed for {hwnd}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            if (err == 1400 || err == 5 || !IsWindow(hwnd)) return;
+            // Best effort
         }
     }
 

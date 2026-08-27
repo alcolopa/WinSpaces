@@ -81,7 +81,14 @@ public sealed class WinEventHook : IWindowEventSource, IDisposable
         {
             if (_queue.TryDequeue(out var evt))
             {
-                WindowEvent?.Invoke(this, evt);
+                try
+                {
+                    WindowEvent?.Invoke(this, evt);
+                }
+                catch
+                {
+                    // Transient window management error must not tear down event hook
+                }
             }
             else
             {

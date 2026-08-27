@@ -533,9 +533,17 @@ Monitor 2
 | Ctrl + Alt + Left/Right | Previous/next workspace |
 | Ctrl + Alt + Shift + 1/2/3 | Move active window to workspace |
 
-"Current monitor" should default to the monitor containing the foreground window.
+"Current monitor" is the monitor containing the mouse pointer.
 
-An optional cursor-based mode can be added later.
+This supersedes the original "monitor containing the foreground window" rule,
+which was implemented first and did not survive contact with real use: a switch
+hides every window on the target monitor, so focus immediately lands on some
+arbitrary window — often one on the *other* monitor. The next keypress then
+switched that other monitor instead, which reads to the user as "changing one
+monitor changed the other one too". Pointer position is stable across a switch
+and is what the user is actually pointing at.
+
+An optional foreground-window-based mode can be added later as a setting.
 
 ---
 
