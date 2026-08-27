@@ -38,6 +38,21 @@ public sealed class MonitorApi : IMonitorManager
     public Monitor? GetMonitorForWindow(nint hwnd)
     {
         var hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        return FromHandle(hMonitor);
+    }
+
+    public Monitor? GetMonitorUnderCursor()
+    {
+        if (!GetCursorPos(out var pt))
+        {
+            throw new InvalidOperationException($"GetCursorPos failed, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+        }
+
+        return FromHandle(MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST));
+    }
+
+    private static Monitor? FromHandle(nint hMonitor)
+    {
         if (hMonitor == 0) return null;
 
         var info = new MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFOEX>() };

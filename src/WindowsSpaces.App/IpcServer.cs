@@ -115,7 +115,10 @@ public sealed class IpcServer : IDisposable
                     }).ToList(),
                     Windows = snapshot.Windows.Select(w => new
                     {
-                        w.Hwnd,
+                        // System.Text.Json has no built-in converter for nint,
+                        // and threw NotSupportedException here, failing the
+                        // whole 'status' command.
+                        Hwnd = (long)w.Hwnd,
                         w.ProcessId,
                         w.MonitorId,
                         w.WorkspaceId,

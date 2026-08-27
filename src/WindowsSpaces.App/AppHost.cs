@@ -126,6 +126,9 @@ public sealed class AppHost : IDisposable
         _ipcServer.Start();
 
         InitializeConfigWatcher();
+
+        // Open the settings window on initial startup so the user immediately sees the interface
+        OnTrayMenuItemInvoked(this, TrayMenuCommand.Settings);
     }
 
     private void InitializeConfigWatcher()
@@ -171,6 +174,34 @@ public sealed class AppHost : IDisposable
         }
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(nint hWnd);
+
+    private SettingsWindow? _settingsWindow;
+
+    private void OpenSettings(string? section = null)
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow(
+                GetConfiguration,
+                ApplyConfiguration,
+                GetConfigSyncFolder,
+                SetConfigSyncFolder,
+                GetDiagnosticsSnapshot,
+                _workspaceManager.GetActiveWorkspaces());
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        }
+
+        if (!string.IsNullOrEmpty(section))
+        {
+            _settingsWindow.NavigateToSection(section);
+        }
+
+        _settingsWindow.Activate();
+        BringToForeground(_settingsWindow);
+    }
+
     private void OnTrayMenuItemInvoked(object? sender, TrayMenuCommand command)
     {
         switch (command)
@@ -180,26 +211,39 @@ public sealed class AppHost : IDisposable
                 break;
             case TrayMenuCommand.Exit:
                 Dispose();
-                Environment.Exit(0);
+                Program.RequestExit();
                 break;
             case TrayMenuCommand.Settings:
-                // GetConfiguration (not a captured snapshot) so a window opened
-                // after another one saved starts from the current config rather
-                // than clobbering it on save.
-                new SettingsWindow(GetConfiguration, ApplyConfiguration, GetConfigSyncFolder, SetConfigSyncFolder).Activate();
+                OpenSettings("Workspaces");
                 break;
             case TrayMenuCommand.Shortcuts:
-                new ShortcutSettingsWindow(GetConfiguration, ApplyConfiguration).Activate();
+                OpenSettings("Shortcuts");
                 break;
             case TrayMenuCommand.Rules:
-                new RulesWindow(GetConfiguration, ApplyConfiguration).Activate();
+                OpenSettings("Rules");
                 break;
             case TrayMenuCommand.Profiles:
-                new ProfilesWindow(GetConfiguration, ApplyConfiguration, _workspaceManager.GetActiveWorkspaces()).Activate();
+                OpenSettings("Profiles");
                 break;
             case TrayMenuCommand.Diagnostics:
-                new DiagnosticsWindow(GetDiagnosticsSnapshot).Activate();
+                OpenSettings("Diagnostics");
                 break;
+        }
+    }
+
+    private static void BringToForeground(Microsoft.UI.Xaml.Window window)
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            if (hwnd != 0)
+            {
+                SetForegroundWindow(hwnd);
+            }
+        }
+        catch
+        {
+            // Best effort
         }
     }
 
@@ -455,8 +499,13 @@ public sealed class AppHost : IDisposable
 
     private void SwitchCurrentMonitor(int workspaceIndex)
     {
-        var foreground = _windowApi.GetForegroundWindow();
-        var monitor = _monitorApi.GetMonitorForWindow(foreground);
+        // "Current monitor" is the one the pointer is on, not the one holding
+        // the foreground window. Switching hides every window on the target
+        // monitor, so focus lands somewhere arbitrary immediately afterwards —
+        // with foreground-based targeting the next press then switches a
+        // *different* monitor, which reads as "changing one monitor changed
+        // the other one too".
+        var monitor = _monitorApi.GetMonitorUnderCursor();
         if (monitor is null) return;
 
         _workspaceManager.SwitchWorkspace(monitor.Id, $"{monitor.Id}:{workspaceIndex}");
@@ -518,6 +567,8 @@ public sealed class AppHost : IDisposable
         _trayIcon?.Dispose();
         _ipcServer?.Dispose();
         _configWatcher?.Dispose();
+
+        try { _settingsWindow?.Close(); } catch {}
 
         foreach (var win in _overviewWindows.ToList())
         {

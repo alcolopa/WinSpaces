@@ -13,6 +13,24 @@ internal static class CrashLogger
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "WindowsSpaces", "crash.log");
 
+    public static void Log(string message)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(LogFilePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.AppendAllText(LogFilePath,
+                $"[{DateTimeOffset.Now:O}] {message}{Environment.NewLine}");
+        }
+        catch
+        {
+        }
+    }
+
     public static void Log(string context, Exception ex)
     {
         try

@@ -71,7 +71,9 @@ public sealed class WindowApi : IWindowManager
         var placement = new WINDOWPLACEMENT { length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
         if (!GetWindowPlacement(hwnd, ref placement))
         {
-            throw new InvalidOperationException($"GetWindowPlacement failed for {hwnd}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            if (err == 1400 || err == 5 || err == 0 || !IsWindow(hwnd)) return null;
+            return null;
         }
 
         GetWindowThreadProcessId(hwnd, out var processId);
@@ -148,9 +150,12 @@ public sealed class WindowApi : IWindowManager
 
     public void Move(nint hwnd, Rectangle bounds)
     {
+        if (!IsWindow(hwnd)) return;
         if (!SetWindowPos(hwnd, 0, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_NOACTIVATE))
         {
-            throw new InvalidOperationException($"SetWindowPos failed for {hwnd}, Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            if (err == 1400 || err == 5 || !IsWindow(hwnd)) return;
+            // Best effort
         }
     }
 

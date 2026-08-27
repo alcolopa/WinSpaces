@@ -118,8 +118,13 @@ internal static class Program
             using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
             client.Connect(2000); // 2 seconds timeout
 
-            using var writer = new StreamWriter(client);
-            using var reader = new StreamReader(client);
+            // leaveOpen: the server closes its end as soon as it has written the
+            // response, so letting StreamWriter.Dispose() flush into the dead
+            // pipe throws "Cannot access a closed pipe" *after* we already have
+            // the answer — masking every successful command as an IPC error.
+            var encoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            using var writer = new StreamWriter(client, encoding, 1024, leaveOpen: true);
+            using var reader = new StreamReader(client, encoding, false, 1024, leaveOpen: true);
 
             string jsonRequest = JsonSerializer.Serialize(request);
             writer.WriteLine(jsonRequest);

@@ -1,31 +1,526 @@
 <Window
     x:Class="WindowsSpaces.App.Views.SettingsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Windows Spaces Settings">
 
-    <Grid Padding="16" RowSpacing="12">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <ListView x:Name="MonitorsList" Grid.Row="0"/>
+        <!-- Custom App Header -->
+        <Border Grid.Row="0" Padding="24,16,24,12" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Background="{ThemeResource LayerOnAcrylicFillColorDefault}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Border Width="36" Height="36" CornerRadius="8" Background="{ThemeResource AccentFillColorDefaultBrush}">
+                        <FontIcon Glyph="&#xE7F4;" Foreground="White" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Windows Spaces" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="Multi-Monitor Independent Virtual Workspaces" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
 
-        <StackPanel Grid.Row="1" Spacing="4" BorderThickness="0,1,0,0" Padding="0,12,0,0">
-            <TextBlock Text="Configuration sync" FontWeight="SemiBold"/>
-            <TextBlock Text="Point config at a folder synced by OneDrive, Dropbox, etc. to share settings across PCs." Opacity="0.7" TextWrapping="Wrap"/>
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock x:Name="SyncFolderText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="360"/>
-                <Button x:Name="ChooseSyncFolderButton" Content="Choose folder..." Click="OnChooseSyncFolderClicked"/>
-                <Button x:Name="UseDefaultLocationButton" Content="Use default location" Click="OnUseDefaultLocationClicked"/>
-            </StackPanel>
-        </StackPanel>
+        <!-- Main Navigation & Content Area -->
+        <NavigationView x:Name="MainNavView" Grid.Row="1"
+                        PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
+                        SelectionChanged="OnNavSelectionChanged"
+                        OpenPaneLength="200">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Workspaces" Tag="Workspaces">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7F4;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Shortcuts" Tag="Shortcuts">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE765;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="App Rules" Tag="Rules">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE71D;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Profiles" Tag="Profiles">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE77B;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Sync &amp; Options" Tag="Sync">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE895;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Diagnostics" Tag="Diagnostics">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9F5;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-            <TextBlock x:Name="ErrorText" Foreground="Red" VerticalAlignment="Center"/>
-            <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked"/>
-            <Button x:Name="CancelButton" Content="Cancel" Click="OnCancelClicked"/>
-        </StackPanel>
+            <Grid Margin="24,16,24,16">
+                <!-- ================= WORKSPACES SECTION ================= -->
+                <ScrollViewer x:Name="WorkspacesSection" Visibility="Visible" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Monitor Workspaces" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock Text="Configure virtual workspaces for each connected physical monitor. Workspaces switch independently per monitor."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- List of Monitors -->
+                        <ItemsControl x:Name="MonitorsItemsControl">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="16"
+                                            Margin="0,0,0,12">
+                                        <StackPanel Spacing="12">
+                                            <!-- Monitor Header -->
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE7F4;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                                    <TextBlock Text="{Binding MonitorId}" FontWeight="SemiBold" FontSize="16"/>
+                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                                        <TextBlock Text="Physical Display" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Tag="{Binding MonitorId}" Click="OnAddWorkspaceClicked" Style="{ThemeResource AccentButtonStyle}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <FontIcon Glyph="&#xE710;" FontSize="12"/>
+                                                        <TextBlock Text="Add Space"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </Grid>
+
+                                            <!-- Workspaces list for this monitor -->
+                                            <ItemsControl ItemsSource="{Binding Workspaces}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="6"
+                                                                Padding="12,8"
+                                                                Margin="0,4">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+
+                                                                <!-- Space index badge -->
+                                                                <Border Grid.Column="0" Width="28" Height="28" CornerRadius="14"
+                                                                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                                        Margin="0,0,12,0" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding Index}" Foreground="White" FontWeight="Bold"
+                                                                               FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                </Border>
+
+                                                                <!-- Editable Space Name -->
+                                                                <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                                                         PlaceholderText="Workspace Name"
+                                                                         VerticalAlignment="Center"
+                                                                         Margin="0,0,12,0"
+                                                                         TextChanged="OnWorkspaceNameChanged"/>
+
+                                                                <!-- Delete workspace button -->
+                                                                <Button Grid.Column="2" Tag="{Binding}" Click="OnDeleteWorkspaceClicked"
+                                                                        ToolTipService.ToolTip="Delete workspace"
+                                                                        Background="Transparent" BorderThickness="0">
+                                                                    <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                                                </Button>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ================= SHORTCUTS SECTION ================= -->
+                <ScrollViewer x:Name="ShortcutsSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Keyboard Shortcuts" FontSize="20" FontWeight="SemiBold"/>
+                                <TextBlock Text="Configure key combinations to instantly switch workspaces or move windows on the active monitor."
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Click="OnResetShortcutsClicked" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE777;" FontSize="12"/>
+                                    <TextBlock Text="Reset to Defaults"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <!-- Shortcuts List -->
+                        <ItemsControl x:Name="ShortcutsItemsControl">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="16"
+                                            Margin="0,0,0,10">
+                                        <StackPanel Spacing="12">
+                                            <!-- Main Summary Row -->
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <!-- Icon -->
+                                                <FontIcon Grid.Column="0" Glyph="{Binding CategoryGlyph}" FontSize="18"
+                                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                                          Margin="0,0,12,0" VerticalAlignment="Center"/>
+
+                                                <!-- Title and Description -->
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14"/>
+                                                    <TextBlock Text="{Binding Description}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    <!-- Conflict warning if any -->
+                                                    <StackPanel Orientation="Horizontal" Spacing="4"
+                                                                Visibility="{Binding HasConflict, Mode=OneWay}">
+                                                        <FontIcon Glyph="&#xE783;" FontSize="12" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                                        <TextBlock Text="{Binding ConflictMessage}" FontSize="11" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+
+                                                <!-- Shortcut Badge Pills -->
+                                                <Border Grid.Column="2" Background="{ThemeResource AccentFillColorTertiaryBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6"
+                                                        Padding="10,6"
+                                                        Margin="12,0"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding FormattedDisplay}" FontWeight="Bold" FontSize="13"
+                                                               FontFamily="Cascadia Code, Consolas, Segoe UI" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                </Border>
+
+                                                <!-- Edit toggle button -->
+                                                <ToggleButton Grid.Column="3" IsChecked="{Binding IsEditing, Mode=TwoWay}"
+                                                              VerticalAlignment="Center" Padding="8,6">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <FontIcon Glyph="&#xE70F;" FontSize="12"/>
+                                                        <TextBlock Text="Edit"/>
+                                                    </StackPanel>
+                                                </ToggleButton>
+                                            </Grid>
+
+                                            <!-- Expanded Editor Controls -->
+                                            <Border Visibility="{Binding IsEditing, Mode=OneWay}"
+                                                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="16,12"
+                                                    Margin="0,4,0,0">
+                                                <StackPanel Spacing="10">
+                                                    <TextBlock Text="Select Modifiers and Key:" FontWeight="SemiBold" FontSize="12"/>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <!-- Modifiers Checkboxes -->
+                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                                            <CheckBox Content="Ctrl" IsChecked="{Binding IsCtrl, Mode=TwoWay}"/>
+                                                            <CheckBox Content="Shift" IsChecked="{Binding IsShift, Mode=TwoWay}"/>
+                                                            <CheckBox Content="Alt" IsChecked="{Binding IsAlt, Mode=TwoWay}"/>
+                                                            <CheckBox Content="Win" IsChecked="{Binding IsWin, Mode=TwoWay}"/>
+                                                        </StackPanel>
+
+                                                        <!-- Key Selector ComboBox -->
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                            <TextBlock Text="Key:" VerticalAlignment="Center" FontWeight="Medium"/>
+                                                            <ComboBox Width="140"
+                                                                      ItemsSource="{Binding AvailableKeys}"
+                                                                      SelectedItem="{Binding SelectedKey, Mode=TwoWay}"
+                                                                      DisplayMemberPath="DisplayName"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ================= RULES SECTION ================= -->
+                <ScrollViewer x:Name="RulesSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Application Rules" FontSize="20" FontWeight="SemiBold"/>
+                                <TextBlock Text="Automatically route applications to designated monitors and workspaces when launched."
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Click="OnAddRuleClicked" Style="{ThemeResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE710;" FontSize="12"/>
+                                    <TextBlock Text="Add Rule"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <ItemsControl x:Name="RulesItemsControl">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="16"
+                                            Margin="0,0,0,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="6">
+                                                <TextBlock Text="{Binding RuleName}" FontWeight="SemiBold" FontSize="14"/>
+                                                <TextBlock Text="{Binding ProcessDisplay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2">
+                                                        <TextBlock Text="{Binding TargetMonitorId}" FontSize="11"/>
+                                                    </Border>
+                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2">
+                                                        <TextBlock Text="{Binding TargetWorkspaceDisplay}" FontSize="11"/>
+                                                    </Border>
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Tag="{Binding Id}" Click="OnDeleteRuleClicked"
+                                                    Background="Transparent" BorderThickness="0" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ================= PROFILES SECTION ================= -->
+                <ScrollViewer x:Name="ProfilesSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Workspace Profiles" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock Text="Save snapshot layouts of workspaces across all monitors for quick one-click switching."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- Save current layout card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Save Current Monitor Setup" FontWeight="SemiBold"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBox x:Name="NewProfileNameInput" Width="260" PlaceholderText="e.g. Coding Setup, Gaming, Meeting"/>
+                                    <Button Content="Save Profile" Click="OnSaveCurrentProfileClicked" Style="{ThemeResource AccentButtonStyle}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Profiles List -->
+                        <ItemsControl x:Name="ProfilesItemsControl">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="16"
+                                            Margin="0,0,0,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"/>
+                                                <TextBlock Text="Workspace configuration snapshot" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                                <Button Content="Activate" Tag="{Binding Name}" Click="OnActivateProfileClicked"/>
+                                                <Button Tag="{Binding Name}" Click="OnDeleteProfileClicked" Background="Transparent" BorderThickness="0">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ================= SYNC & OPTIONS SECTION ================= -->
+                <ScrollViewer x:Name="SyncSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Sync &amp; Preferences" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock Text="Manage configuration storage location and visual preferences."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- Sync Folder Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <StackPanel Spacing="12">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="Cloud Configuration Sync" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="Point config at a folder synced by OneDrive, Dropbox, Google Drive, or Nextcloud to share settings across multiple computers."
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" FontSize="12"/>
+                                </StackPanel>
+
+                                <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="12,8">
+                                    <TextBlock x:Name="SyncFolderText" TextTrimming="CharacterEllipsis" FontFamily="Cascadia Code, Consolas" FontSize="12"/>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="ChooseSyncFolderButton" Click="OnChooseSyncFolderClicked">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon Glyph="&#xE8B7;" FontSize="12"/>
+                                            <TextBlock Text="Choose Folder..."/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="UseDefaultLocationButton" Content="Use Default Location" Click="OnUseDefaultLocationClicked"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Transitions Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="Smooth Transitions" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="Enable smooth visual animations when switching between workspaces."
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="EnableTransitionsToggle" IsOn="True" VerticalAlignment="Center" Margin="0" OffContent="" OnContent=""/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ================= DIAGNOSTICS SECTION ================= -->
+                <ScrollViewer x:Name="DiagnosticsSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Diagnostics &amp; Inspector" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock Text="Inspect active workspaces and tracked window handles in real-time."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Live Active Workspaces" FontWeight="SemiBold"/>
+                                <ListView x:Name="DiagMonitorsList" Height="140" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="4"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Tracked Windows" FontWeight="SemiBold"/>
+                                <ListView x:Name="DiagWindowsList" Height="220" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="4"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </NavigationView>
+
+        <!-- Bottom Action Bar & Status Bar -->
+        <Border Grid.Row="2" Background="{ThemeResource LayerOnAcrylicFillColorDefault}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="24,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Error / Status InfoBar -->
+                <InfoBar x:Name="StatusInfoBar" Grid.Column="0" IsOpen="False" Margin="0,0,16,0" VerticalAlignment="Center"/>
+
+                <!-- Action Buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="SaveButton" Content="Save Changes" Style="{ThemeResource AccentButtonStyle}" Click="OnSaveClicked"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Click="OnCancelClicked"/>
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

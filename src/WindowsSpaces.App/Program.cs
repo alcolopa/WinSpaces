@@ -6,6 +6,7 @@ internal static class Program
     private const uint WM_HOTKEY = 0x0312;
     private const uint WM_DESTROY = 0x0002;
     private const uint WM_APP = 0x8000;
+    private const uint WM_APP_INIT = WM_APP + 1;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint CreateWindowEx(uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
@@ -26,10 +27,32 @@ internal static class Program
     [DllImport("user32.dll")]
     private static extern nint DefWindowProc(nint hWnd, uint msg, nint wParam, nint lParam);
 
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    private static extern void PostQuitMessage(int nExitCode);
+
+    [DllImport("user32.dll")]
+    private static extern bool InSendMessage();
+
+    [DllImport("user32.dll")]
+    private static extern bool ReplyMessage(nint lResult);
+
+    private const uint WM_QUIT = 0x0012;
+    private const uint PM_REMOVE = 0x0001;
+
+    [DllImport("user32.dll")]
+    private static extern bool PeekMessage(out MSG lpMsg, nint hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern nint GetModuleHandle(string? lpModuleName);
 
-    private const nint HWND_MESSAGE = -3;
+    public static void RequestExit()
+    {
+        _isExiting = true;
+        PostQuitMessage(0);
+    }
 
     private delegate nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam);
 
@@ -68,27 +91,27 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        // Bootstrap the WinUI3 framework on this STA thread. The callback runs
-        // the existing raw Win32 message-only window + GetMessage pump, so
-        // hotkey/tray behavior is unchanged; the only difference is that the
-        // XAML dispatcher is now initialized on the same thread, allowing
-        // Microsoft.UI.Xaml.Window instances to be created later.
-        //
-        // This project sets DISABLE_XAML_GENERATED_MAIN, so the C#/WinRT COM
-        // interop layer that the XAML-generated Main would have initialized
-        // must be initialized here by hand, before Application.Start — without
-        // it XAML type activation fails.
-        global::WinRT.ComWrappersSupport.InitializeComWrappers();
-
-        Microsoft.UI.Xaml.Application.Start(_ =>
+        try
         {
-            var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
-                Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
-            System.Threading.SynchronizationContext.SetSynchronizationContext(context);
-            _app = new App();
-            RunMessageWindowLoop();
-        });
+            CrashLogger.Log("Program.Main started");
+            global::WinRT.ComWrappersSupport.InitializeComWrappers();
+
+            Microsoft.UI.Xaml.Application.Start(_ =>
+            {
+                var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(
+                    Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+                System.Threading.SynchronizationContext.SetSynchronizationContext(context);
+                _app = new App();
+                RunMessageWindowLoop();
+            });
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log("Program.Main unhandled exception", ex);
+        }
     }
+
+    private static volatile bool _isExiting;
 
     private static void RunMessageWindowLoop()
     {
@@ -108,25 +131,25 @@ internal static class Program
             throw new InvalidOperationException($"RegisterClassEx failed, Win32 error {Marshal.GetLastWin32Error()}");
         }
 
-        var hwnd = CreateWindowEx(0, "WindowsSpacesMessageWindow", "WindowsSpaces", 0, 0, 0, 0, 0, HWND_MESSAGE, 0, hInstance, 0);
+        // A message-only window (HWND_MESSAGE parent) works fine for
+        // RegisterHotKey/WM_HOTKEY, but Shell_NotifyIcon's WM_APP click
+        // callbacks are never delivered to one: NIM_ADD still succeeds and
+        // the icon still shows, but Explorer silently drops the callback
+        // because the window isn't part of the normal top-level hierarchy.
+        // Microsoft's own tray-icon sample uses a real (if invisible)
+        // top-level window for this reason, so we do the same: parent NULL,
+        // no WS_VISIBLE style.
+        var hwnd = CreateWindowEx(0, "WindowsSpacesMessageWindow", "WindowsSpaces", 0, 0, 0, 0, 0, 0, 0, hInstance, 0);
         if (hwnd == 0)
         {
-            throw new InvalidOperationException($"Failed to create message-only window for hotkey/tray hosting, Win32 error {Marshal.GetLastWin32Error()}");
+            throw new InvalidOperationException($"Failed to create hidden window for hotkey/tray hosting, Win32 error {Marshal.GetLastWin32Error()}");
         }
 
-        _host = new AppHost();
-        _host.Start(hwnd);
-
-        if (_app is not null)
+        if (!PostMessage(hwnd, WM_APP_INIT, 0, 0))
         {
-            _app.Host = _host;
+            throw new InvalidOperationException($"Failed to post startup message, Win32 error {Marshal.GetLastWin32Error()}");
         }
 
-        // Primary reliability rule (spec §11): a window visible in the wrong
-        // workspace beats one that's permanently gone. An unhandled exception
-        // here would otherwise kill the process mid-transition and leave
-        // whatever this tick just hid (possibly a whole monitor's windows)
-        // hidden forever, since nothing else ever un-hides them.
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             if (e.ExceptionObject is Exception ex)
@@ -142,32 +165,75 @@ internal static class Program
             e.SetObserved();
         };
 
-        while (GetMessage(out var msg, 0, 0, 0) > 0)
+        CrashLogger.Log($"RunMessageWindowLoop started, hwnd={hwnd}");
+
+        while (!_isExiting)
         {
-            if (msg.message == WM_HOTKEY)
+            var getMessageResult = GetMessage(out var msg, 0, 0, 0);
+            if (getMessageResult <= 0)
             {
-                _host.HandleMessage(msg.message, msg.wParam);
+                if (_isExiting) break;
+                // WinUI posts WM_QUIT when a XAML window closes.
+                // Consume WM_QUIT from the thread queue so GetMessage doesn't loop endlessly.
+                PeekMessage(out _, 0, WM_QUIT, WM_QUIT, PM_REMOVE);
+                continue;
             }
-            else if (msg.message == WM_APP && msg.hwnd == hwnd)
+
+            if (msg.message == WM_APP_INIT && msg.hwnd == hwnd)
             {
-                // Only messages targeting our own message-only window are tray
-                // callbacks; WinUI plumbing on this same thread also uses the
-                // WM_APP range for its own windows.
-                _host.HandleTrayMessage(msg.message, msg.wParam, msg.lParam);
+                CrashLogger.Log("Received WM_APP_INIT, starting AppHost...");
+                _host = new AppHost();
+                _host.Start(hwnd);
+                CrashLogger.Log("AppHost started successfully.");
+
+                if (_app is not null)
+                {
+                    _app.Host = _host;
+                }
+            }
+            else if (msg.message == WM_HOTKEY)
+            {
+                _host?.HandleMessage(msg.message, msg.wParam);
             }
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
         }
 
-        _host.Dispose();
+        CrashLogger.Log("RunMessageWindowLoop exited.");
+
+        _host?.Dispose();
     }
 
     private static nint WndProcHandler(nint hWnd, uint msg, nint wParam, nint lParam)
     {
+        // Explorer delivers Shell_NotifyIcon callbacks with SendMessage, not
+        // PostMessage: measured on Windows 11, InSendMessage() is true for
+        // every NIN_SELECT / WM_CONTEXTMENU / WM_?BUTTONUP the tray produces.
+        // A *sent* message is handed straight to the window procedure and
+        // never surfaces from GetMessage, so the tray callback has to be
+        // handled here. Handling it in the message pump (as this used to)
+        // silently dropped every tray click: the icon appeared, but clicking
+        // it did nothing and right-click showed no menu.
+        if (msg == WM_APP)
+        {
+            // Release Explorer's sending thread before doing anything slow:
+            // the right-click handler runs a modal TrackPopupMenu loop and the
+            // left-click handler builds a XAML window, and blocking the caller
+            // of a SendMessage for that long hangs the taskbar.
+            if (InSendMessage())
+            {
+                ReplyMessage(0);
+            }
+
+            _host?.HandleTrayMessage(msg, wParam, lParam);
+            return 0;
+        }
+
         if (msg == WM_DESTROY)
         {
             _host?.Dispose();
         }
+
         return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 }

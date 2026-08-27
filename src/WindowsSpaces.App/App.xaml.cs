@@ -23,6 +23,18 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+
+        // A .NET exception thrown inside a XAML-dispatched callback (Window
+        // construction, a Click handler, etc.) crosses the WinRT ABI
+        // boundary as a "stowed exception" — if nothing here observes it,
+        // Windows fail-fasts the whole process with no managed stack trace
+        // (Watson just shows an offset inside Microsoft.UI.Xaml.dll). This is
+        // the WinUI-specific hook that runs *before* that happens.
+        UnhandledException += (_, e) =>
+        {
+            CrashLogger.Log("Application.UnhandledException", e.Exception);
+            e.Handled = true;
+        };
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

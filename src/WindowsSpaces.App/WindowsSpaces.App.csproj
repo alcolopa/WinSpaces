@@ -44,4 +44,8 @@
     <ProjectReference Include="..\WindowsSpaces.Persistence\WindowsSpaces.Persistence.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
