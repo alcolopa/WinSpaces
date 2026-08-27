@@ -178,19 +178,37 @@ public sealed class AppHost : IDisposable
     private static extern bool SetForegroundWindow(nint hWnd);
 
     private SettingsWindow? _settingsWindow;
+    private bool _openingSettingsWindow;
 
     private void OpenSettings(string? section = null)
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(
-                GetConfiguration,
-                ApplyConfiguration,
-                GetConfigSyncFolder,
-                SetConfigSyncFolder,
-                GetDiagnosticsSnapshot,
-                _workspaceManager.GetActiveWorkspaces());
-            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            // A single tray click can deliver both a legacy WM_LBUTTONUP and
+            // a version-4 NIN_SELECT for the same click, and constructing a
+            // SettingsWindow is slow enough (XAML parse, Mica backdrop, view
+            // model) that a second, reentrant tray message can arrive before
+            // _settingsWindow is assigned below — the null-check alone let
+            // two windows get constructed for one click. Flip this flag
+            // before construction starts so the reentrant call bails out
+            // immediately instead of racing the assignment.
+            if (_openingSettingsWindow) return;
+            _openingSettingsWindow = true;
+            try
+            {
+                _settingsWindow = new SettingsWindow(
+                    GetConfiguration,
+                    ApplyConfiguration,
+                    GetConfigSyncFolder,
+                    SetConfigSyncFolder,
+                    GetDiagnosticsSnapshot,
+                    _workspaceManager.GetActiveWorkspaces());
+                _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            }
+            finally
+            {
+                _openingSettingsWindow = false;
+            }
         }
 
         if (!string.IsNullOrEmpty(section))

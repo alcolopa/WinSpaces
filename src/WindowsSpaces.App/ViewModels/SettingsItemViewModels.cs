@@ -159,7 +159,7 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.SwitchWorkspace => $"Switch to Space {WorkspaceIndex}",
             HotkeyAction.MoveToWorkspace => $"Move Window to Space {WorkspaceIndex}",
             HotkeyAction.ShowAllWindows => "Show All Windows",
-            HotkeyAction.ShowOverview => "Mission Control / Overview",
+            HotkeyAction.ShowOverview => "Spaces Overview",
             _ => Action.ToString()
         };
 
@@ -186,7 +186,7 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.SwitchWorkspace => $"Switches active workspace on the current monitor to Space {WorkspaceIndex}.",
             HotkeyAction.MoveToWorkspace => $"Moves the currently focused window to Space {WorkspaceIndex} on its monitor.",
             HotkeyAction.ShowAllWindows => "Unhides all tracked windows across all monitors (emergency recovery).",
-            HotkeyAction.ShowOverview => "Opens interactive Mission Control workspace layout across monitors.",
+            HotkeyAction.ShowOverview => "Opens the interactive Spaces Overview workspace layout across monitors.",
             _ => string.Empty
         };
 

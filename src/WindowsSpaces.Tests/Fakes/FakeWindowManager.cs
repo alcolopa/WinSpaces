@@ -22,6 +22,8 @@ public sealed class FakeWindowManager : IWindowManager
 
     public IReadOnlyList<nint> EnumerateTopLevelWindows() => Windows.Keys.ToList();
 
+    public bool IsManageable(nint hwnd) => Windows.ContainsKey(hwnd);
+
     public WindowState? GetWindowState(nint hwnd) => Windows.GetValueOrDefault(hwnd);
 
     public void Hide(nint hwnd)

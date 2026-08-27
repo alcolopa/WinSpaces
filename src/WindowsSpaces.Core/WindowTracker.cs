@@ -85,6 +85,15 @@ public sealed class WindowTracker
 
     private void TrackAsNewWindow(nint hwnd)
     {
+        // EnumerateTopLevelWindows() already excludes shell chrome (taskbar,
+        // desktop) for Rescan(), but windows discovered here come from live
+        // WinEvents instead, which fire for shell-owned windows too (taskbar
+        // internals like MSTaskListWClass in particular). Without this check
+        // those get tracked, workspace-assigned, and then hidden by an
+        // ordinary workspace switch — taskbar/desktop chrome disappearing or
+        // going black.
+        if (!_windowManager.IsManageable(hwnd)) return;
+
         var state = _windowManager.GetWindowState(hwnd);
         if (state is null) return;
 

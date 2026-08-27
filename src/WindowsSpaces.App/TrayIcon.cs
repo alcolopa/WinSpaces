@@ -209,9 +209,11 @@ public sealed class TrayIcon : IDisposable
             // Windows sends LBUTTONUP, then LBUTTONDBLCLK, then a second
             // LBUTTONUP for a double-click — suppress that trailing LBUTTONUP
             // so a double-click doesn't also fire the single-click action.
+            // The leading LBUTTONUP already opened Settings via the
+            // single-click branch below, so this branch must not invoke it
+            // again — doing so opened a second Settings window.
             _suppressNextClick = true;
             DoubleClicked?.Invoke(this, EventArgs.Empty);
-            MenuItemInvoked?.Invoke(this, TrayMenuCommand.Settings);
             return;
         }
 

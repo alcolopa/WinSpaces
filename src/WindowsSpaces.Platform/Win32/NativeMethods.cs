@@ -100,8 +100,11 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern bool ShowWindow(nint hWnd, int nCmdShow);
 
+    internal const uint SWP_NOSIZE = 0x0001;
+    internal const uint SWP_NOMOVE = 0x0002;
     internal const uint SWP_NOZORDER = 0x0004;
     internal const uint SWP_NOACTIVATE = 0x0010;
+    internal const uint SWP_FRAMECHANGED = 0x0020;
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);

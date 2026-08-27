@@ -47,6 +47,8 @@ public sealed class WindowApi : IWindowManager
         "Button" // classic Start button, present on some configurations
     };
 
+    public bool IsManageable(nint hwnd) => IsManagedTopLevelWindow(hwnd);
+
     private static bool IsManagedTopLevelWindow(nint hWnd)
     {
         if (!IsWindowVisible(hWnd)) return false;
@@ -146,6 +148,15 @@ public sealed class WindowApi : IWindowManager
         };
 
         ShowWindow(hwnd, showCmd);
+
+        // DirectComposition-backed windows (WinUI3, Xaml Islands) can stop
+        // painting after a raw SW_HIDE/SW_SHOW cycle — the compositor never
+        // gets the resize/paint signal it normally relies on, leaving the
+        // window's content solid black even though Win32 reports it visible.
+        // A no-op SetWindowPos with SWP_FRAMECHANGED forces just this window
+        // to recompose, without touching anything else on the desktop.
+        SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 
     public void Move(nint hwnd, Rectangle bounds)
