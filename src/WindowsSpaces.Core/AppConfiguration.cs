@@ -10,18 +10,31 @@ public sealed record AppConfiguration(
     bool EnableTransitions = true)
 {
     public const int CurrentSchemaVersion = 1;
-    private const int MaxWorkspacesPerMonitor = 9;
+
+    /// <summary>
+    /// Upper bound on spaces per monitor. Spaces are created on demand at
+    /// runtime, so this is a sanity ceiling rather than the old
+    /// one-space-per-number-key limit — only the first
+    /// <see cref="MaxDirectSwitchWorkspaces"/> get a "jump straight there"
+    /// hotkey; the rest are reached with next/previous or the overview.
+    /// </summary>
+    public const int MaxWorkspacesPerMonitor = 20;
+
+    /// <summary>How many spaces can be bound to a direct number-key hotkey (1-9).</summary>
+    public const int MaxDirectSwitchWorkspaces = 9;
 
     public IReadOnlyList<ApplicationRule> ActiveRules => Rules ?? Array.Empty<ApplicationRule>();
     public IReadOnlyList<WorkspaceProfile> ActiveProfiles => Profiles ?? Array.Empty<WorkspaceProfile>();
 
     public static AppConfiguration CreateDefault(IEnumerable<Monitor> monitors)
     {
+        // One space per monitor. Extra spaces are created on demand
+        // (Ctrl+Alt+Plus, or the overview's add button) — starting with an
+        // empty second space just gives every monitor a space nothing is in.
         var monitorConfigs = monitors
             .Select(m => new MonitorWorkspaceConfig(m.Id, new[]
             {
-                new WorkspaceDefinition($"{m.Id}:1", "Space 1", 1),
-                new WorkspaceDefinition($"{m.Id}:2", "Space 2", 2)
+                new WorkspaceDefinition($"{m.Id}:1", "Space 1", 1)
             }))
             .ToList();
 
@@ -38,7 +51,22 @@ public sealed record AppConfiguration(
             // reserved Task Manager shortcut, so RegisterHotKey for it always
             // fails with ERROR_HOTKEY_ALREADY_REGISTERED.
             new(HotkeyAction.ShowAllWindows, 0, ModifierKeys.Control | ModifierKeys.Shift, 0x24),
-            new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control, 0x26)
+            new(HotkeyAction.ShowOverview, 0, ModifierKeys.Control, 0x26),
+
+            // Relative navigation is the primary way to reach spaces beyond
+            // the first few, and the only way to reach spaces created at
+            // runtime (which have no number-key binding of their own).
+            // VK_RIGHT (0x27) / VK_LEFT (0x25).
+            new(HotkeyAction.NextWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0x27),
+            new(HotkeyAction.PreviousWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0x25),
+            new(HotkeyAction.MoveToNextWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x27),
+            new(HotkeyAction.MoveToPreviousWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x25),
+
+            // Create/delete a space on the monitor under the cursor.
+            // VK_OEM_PLUS (0xBB) / VK_OEM_MINUS (0xBD) — the same pairing
+            // Windows itself uses for adding and removing virtual desktops.
+            new(HotkeyAction.CreateWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0xBB),
+            new(HotkeyAction.CloseWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0xBD)
         };
 
         return new AppConfiguration(

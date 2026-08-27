@@ -49,9 +49,23 @@ public sealed class WindowApi : IWindowManager
 
     public bool IsManageable(nint hwnd) => IsManagedTopLevelWindow(hwnd);
 
+    /// <summary>
+    /// This process. Our own UI (the overview panes, Settings, Shortcuts, …)
+    /// looks like an ordinary managed window to every check below — visible,
+    /// unowned, titled, not a tool window — so without this it gets tracked,
+    /// assigned to a workspace, and then SW_HIDE'd by the next workspace
+    /// switch. That is what made the overview vanish the moment the user
+    /// added a space or moved a window from inside it.
+    /// </summary>
+    private static readonly uint CurrentProcessId = (uint)Environment.ProcessId;
+
     private static bool IsManagedTopLevelWindow(nint hWnd)
     {
         if (!IsWindowVisible(hWnd)) return false;
+
+        GetWindowThreadProcessId(hWnd, out var owningProcessId);
+        if (owningProcessId == CurrentProcessId) return false;
+
         if (GetWindow(hWnd, GW_OWNER) != 0) return false;
         if ((GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) return false;
         if (GetWindowTextLength(hWnd) == 0) return false;
@@ -132,6 +146,10 @@ public sealed class WindowApi : IWindowManager
 
     public void Hide(nint hwnd)
     {
+        // Set before the hide, not after: DWM decides whether to fade at the
+        // moment the window is hidden. Left disabled while the window is out
+        // of view; Show turns it back on.
+        DwmApi.SetTransitionsDisabled(hwnd, true);
         ShowWindow(hwnd, SW_HIDE);
     }
 
@@ -157,6 +175,11 @@ public sealed class WindowApi : IWindowManager
         // to recompose, without touching anything else on the desktop.
         SetWindowPos(hwnd, 0, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+
+        // Restored only once the window is back on screen, so the window keeps
+        // its normal minimise/maximise animations while the user is using it —
+        // Hide is the only place the fade actually hurts.
+        DwmApi.SetTransitionsDisabled(hwnd, false);
     }
 
     public void Move(nint hwnd, Rectangle bounds)
@@ -170,9 +193,55 @@ public sealed class WindowApi : IWindowManager
         }
     }
 
+    /// <summary>
+    /// Brings a window to the front. A bare SetForegroundWindow is refused by
+    /// Windows' foreground lock whenever the calling thread does not own the
+    /// current foreground window — which is exactly the case when activating
+    /// a window picked in the overview, since the overview is torn down first.
+    /// Attaching to the current foreground thread's input queue lifts that
+    /// restriction for the duration of the call.
+    /// </summary>
     public void SetForeground(nint hwnd)
     {
-        SetForegroundWindow(hwnd);
+        if (!IsWindow(hwnd)) return;
+
+        var placement = new WINDOWPLACEMENT { length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
+        if (GetWindowPlacement(hwnd, ref placement) && placement.showCmd == SW_SHOWMINIMIZED)
+        {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+
+        var currentForeground = NativeMethods.GetForegroundWindow();
+        var thisThread = GetCurrentThreadId();
+        var foregroundThread = currentForeground == 0
+            ? thisThread
+            : GetWindowThreadProcessId(currentForeground, out _);
+
+        var attached = foregroundThread != thisThread &&
+                       AttachThreadInput(thisThread, foregroundThread, true);
+        try
+        {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(thisThread, foregroundThread, false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Posts WM_CLOSE rather than terminating: the owning app still gets to
+    /// run its shutdown path and show any "save changes?" prompt, and a
+    /// refusal to close is its right. Never kills a process.
+    /// </summary>
+    public void Close(nint hwnd)
+    {
+        if (!IsWindow(hwnd)) return;
+        PostMessage(hwnd, WM_CLOSE, 0, 0);
     }
 
     public nint GetForegroundWindow() => NativeMethods.GetForegroundWindow();

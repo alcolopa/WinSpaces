@@ -160,13 +160,25 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.MoveToWorkspace => $"Move Window to Space {WorkspaceIndex}",
             HotkeyAction.ShowAllWindows => "Show All Windows",
             HotkeyAction.ShowOverview => "Spaces Overview",
+            HotkeyAction.NextWorkspace => "Next Space",
+            HotkeyAction.PreviousWorkspace => "Previous Space",
+            HotkeyAction.MoveToNextWorkspace => "Move Window to Next Space",
+            HotkeyAction.MoveToPreviousWorkspace => "Move Window to Previous Space",
+            HotkeyAction.CreateWorkspace => "New Space",
+            HotkeyAction.CloseWorkspace => "Delete Current Space",
             _ => Action.ToString()
         };
 
         Category = Action switch
         {
             HotkeyAction.SwitchWorkspace => "Workspace Navigation",
+            HotkeyAction.NextWorkspace => "Workspace Navigation",
+            HotkeyAction.PreviousWorkspace => "Workspace Navigation",
             HotkeyAction.MoveToWorkspace => "Window Management",
+            HotkeyAction.MoveToNextWorkspace => "Window Management",
+            HotkeyAction.MoveToPreviousWorkspace => "Window Management",
+            HotkeyAction.CreateWorkspace => "Manage Spaces",
+            HotkeyAction.CloseWorkspace => "Manage Spaces",
             HotkeyAction.ShowAllWindows => "Recovery & Utilities",
             HotkeyAction.ShowOverview => "Recovery & Utilities",
             _ => "General"
@@ -175,7 +187,13 @@ public sealed class HotkeyItemViewModel : ViewModelBase
         CategoryGlyph = Action switch
         {
             HotkeyAction.SwitchWorkspace => "\uE7C4", // Switch
+            HotkeyAction.NextWorkspace => "\uE72A", // Forward
+            HotkeyAction.PreviousWorkspace => "\uE72B", // Back
             HotkeyAction.MoveToWorkspace => "\uE8C8", // Move window
+            HotkeyAction.MoveToNextWorkspace => "\uE8C8",
+            HotkeyAction.MoveToPreviousWorkspace => "\uE8C8",
+            HotkeyAction.CreateWorkspace => "\uE710", // Add
+            HotkeyAction.CloseWorkspace => "\uE74D", // Delete
             HotkeyAction.ShowAllWindows => "\uE737", // Eye / View
             HotkeyAction.ShowOverview => "\uE7F4", // Tiles / ViewAll
             _ => "\uE765"
@@ -187,6 +205,12 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.MoveToWorkspace => $"Moves the currently focused window to Space {WorkspaceIndex} on its monitor.",
             HotkeyAction.ShowAllWindows => "Unhides all tracked windows across all monitors (emergency recovery).",
             HotkeyAction.ShowOverview => "Opens the interactive Spaces Overview workspace layout across monitors.",
+            HotkeyAction.NextWorkspace => "Cycles the monitor under the pointer to the next space, wrapping past the last one.",
+            HotkeyAction.PreviousWorkspace => "Cycles the monitor under the pointer to the previous space, wrapping past the first one.",
+            HotkeyAction.MoveToNextWorkspace => "Sends the focused window to the next space on its monitor and follows it there.",
+            HotkeyAction.MoveToPreviousWorkspace => "Sends the focused window to the previous space on its monitor and follows it there.",
+            HotkeyAction.CreateWorkspace => "Creates a new space on the monitor under the pointer and switches to it.",
+            HotkeyAction.CloseWorkspace => "Deletes the space showing on the monitor under the pointer; its windows move to a neighbouring space.",
             _ => string.Empty
         };
 
@@ -244,6 +268,13 @@ public sealed class MonitorItemViewModel : ViewModelBase
     }
 
     public string MonitorId { get; }
+
+    /// <summary>
+    /// The id without its <c>\\.\</c> device-namespace prefix. Display only —
+    /// <see cref="MonitorId"/> stays the identity everything is keyed on.
+    /// </summary>
+    public string MonitorDisplayName => MonitorNaming.ToDisplayName(MonitorId);
+
     public ObservableCollection<WorkspaceItemViewModel> Workspaces { get; }
 
     public MonitorWorkspaceConfig ToConfig() =>
@@ -305,8 +336,14 @@ public sealed class RuleItemViewModel : ViewModelBase
     public string TargetMonitorId
     {
         get => _targetMonitorId;
-        set => SetProperty(ref _targetMonitorId, value);
+        set
+        {
+            if (SetProperty(ref _targetMonitorId, value)) OnPropertyChanged(nameof(TargetMonitorDisplayName));
+        }
     }
+
+    /// <summary>Display-only form of <see cref="TargetMonitorId"/>.</summary>
+    public string TargetMonitorDisplayName => MonitorNaming.ToDisplayName(TargetMonitorId);
 
     public int TargetWorkspaceIndex
     {

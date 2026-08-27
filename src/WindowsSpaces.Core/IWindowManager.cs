@@ -11,5 +11,8 @@ public interface IWindowManager
     void Show(nint hwnd);
     void Move(nint hwnd, Rectangle bounds);
     void SetForeground(nint hwnd);
+
+    /// <summary>Asks the window to close (WM_CLOSE). The app owning it may prompt or refuse; this is a request, not a kill.</summary>
+    void Close(nint hwnd);
     nint GetForegroundWindow();
 }

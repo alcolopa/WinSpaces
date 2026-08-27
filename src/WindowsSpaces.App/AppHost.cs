@@ -19,6 +19,7 @@ public sealed class AppHost : IDisposable
     private readonly WinEventHook _eventSource = new();
     private readonly OperationGuard _guard = new();
     private readonly WindowTracker _tracker;
+    private readonly SlideTransitionAnimator _animator;
     private readonly WorkspaceManager _workspaceManager;
     private IConfigurationStore _configStore;
     private HotkeyManager? _hotkeys;
@@ -60,7 +61,8 @@ public sealed class AppHost : IDisposable
                 restoration = null;
                 return false;
             });
-        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager());
+        _animator = new SlideTransitionAnimator(_monitorApi, isEnabled: TransitionsEnabled);
+        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager(), _animator);
     }
 
     public WorkspaceManager WorkspaceManager => _workspaceManager;
@@ -84,7 +86,8 @@ public sealed class AppHost : IDisposable
                 restoration = null;
                 return false;
             });
-        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager());
+        _animator = new SlideTransitionAnimator(_monitorApi, isEnabled: TransitionsEnabled);
+        _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager(), _animator);
     }
 
     public void Start(nint messageWindowHwnd)
@@ -94,17 +97,7 @@ public sealed class AppHost : IDisposable
         _eventSource.Start();
 
         var monitors = _monitorApi.GetMonitors();
-        _config = LoadOrDefaultConfiguration(monitors);
-
-        foreach (var monitorConfig in _config.Monitors)
-        {
-            foreach (var workspace in monitorConfig.Workspaces)
-            {
-                _workspaceManager.SetWorkspaceDefinition(workspace);
-                _workspaceManager.RenameWorkspace(workspace.Id, workspace.Name);
-            }
-            _workspaceManager.SwitchWorkspace(monitorConfig.MonitorId, monitorConfig.Workspaces[0].Id);
-        }
+        _config = SyncConfigurationToCurrentState(LoadOrDefaultConfiguration(monitors), monitors);
 
         // Startup must never crash the whole app over a hotkey conflict (with
         // Windows itself or another app) — go through the same rollback-safe
@@ -270,6 +263,89 @@ public sealed class AppHost : IDisposable
     /// from it (new/reconnected monitor never seen before), so a partial
     /// or missing config never leaves a monitor unconfigured.
     /// </summary>
+    /// <summary>
+    /// Reconciles the loaded configuration with what is actually on screen at
+    /// startup: every attached monitor collapses to a single space holding
+    /// every window currently on it.
+    ///
+    /// The app shows all windows again as it exits, so at launch there is no
+    /// hidden state to restore — what is on screen genuinely is one space per
+    /// monitor, and a space list left over from a previous session would only
+    /// describe spaces that no longer have anything in them. Monitors that
+    /// are not attached right now are left untouched: their entries exist to
+    /// preserve identity across docking, and nothing can be said about their
+    /// contents while they are away.
+    /// </summary>
+    private AppConfiguration SyncConfigurationToCurrentState(AppConfiguration config, IReadOnlyList<Monitor> monitors)
+    {
+        var attached = monitors.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+        var synced = new List<MonitorWorkspaceConfig>();
+
+        foreach (var monitorConfig in config.Monitors)
+        {
+            if (!attached.Contains(monitorConfig.MonitorId))
+            {
+                synced.Add(monitorConfig);
+                continue;
+            }
+
+            // Keep the first space's identity, name and automation commands —
+            // "sync to what's on screen" is about which spaces exist and what
+            // is in them, not about discarding what the user named things.
+            var space = monitorConfig.Workspaces.Count > 0
+                ? monitorConfig.Workspaces[0]
+                : new WorkspaceDefinition($"{monitorConfig.MonitorId}:1", "Space 1", 1);
+
+            _workspaceManager.ResetToSingleWorkspace(monitorConfig.MonitorId, space);
+            synced.Add(new MonitorWorkspaceConfig(monitorConfig.MonitorId, new[] { space }));
+        }
+
+        var result = config with
+        {
+            Monitors = synced,
+            Profiles = PruneProfilesToExistingWorkspaces(config.ActiveProfiles, synced)
+        };
+
+        // Persisting is best-effort: the in-memory state is already correct
+        // and a read-only or locked config file must not stop the app coming
+        // up. The next successful save writes it out anyway.
+        try
+        {
+            _configStore.Save(result);
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log("Startup workspace sync could not be saved", ex);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Drops profile entries pointing at spaces the sync has just removed. A
+    /// profile that still named a deleted space would fail validation and
+    /// block every later save.
+    /// </summary>
+    private static IReadOnlyList<WorkspaceProfile> PruneProfilesToExistingWorkspaces(
+        IReadOnlyList<WorkspaceProfile> profiles,
+        IReadOnlyList<MonitorWorkspaceConfig> monitors)
+    {
+        if (profiles.Count == 0) return profiles;
+
+        var existing = monitors
+            .SelectMany(m => m.Workspaces.Select(w => w.Id))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return profiles
+            .Select(p => p with
+            {
+                ActiveWorkspaceByMonitor = p.ActiveWorkspaceByMonitor
+                    .Where(kv => existing.Contains(kv.Value))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value)
+            })
+            .ToList();
+    }
+
     private AppConfiguration LoadOrDefaultConfiguration(IReadOnlyList<Monitor> monitors)
     {
         var saved = _configStore.Load();
@@ -284,9 +360,11 @@ public sealed class AppHost : IDisposable
     }
 
     /// <summary>
-    /// Applies a Settings/Shortcuts save: renames workspaces live and
-    /// re-registers hotkeys. Adding/removing workspaces for a monitor is
-    /// not applied live — the caller's UI must tell the user to restart.
+    /// Applies a Settings/Shortcuts save: re-registers hotkeys and applies the
+    /// monitors' space lists live, including spaces added or removed since the
+    /// last apply. No restart is needed — windows stranded in a deleted space
+    /// are relocated to a surviving neighbour by
+    /// <see cref="WorkspaceManager.SetMonitorWorkspaces"/>.
     ///
     /// Never throws. Returns false with a user-displayable <paramref name="error"/>
     /// when the new hotkeys cannot be registered with the OS (another process
@@ -298,9 +376,19 @@ public sealed class AppHost : IDisposable
     /// </summary>
     public bool ApplyConfiguration(AppConfiguration config, out string? error)
     {
+        error = null;
         var previousConfig = _config;
 
-        if (!TryReplaceHotkeys(config.Hotkeys, previousConfig?.Hotkeys, out error))
+        // Adding, renaming or deleting a space goes through here, and those
+        // changes leave the hotkey set untouched. Tearing every global hotkey
+        // down and re-registering it for them is not just wasted work: a
+        // transient RegisterHotKey failure would abort the space change with a
+        // "could not register the requested shortcuts" error that has nothing
+        // to do with what the user asked for.
+        var hotkeysUnchanged = previousConfig is not null &&
+                               previousConfig.Hotkeys.SequenceEqual(config.Hotkeys);
+
+        if (!hotkeysUnchanged && !TryReplaceHotkeys(config.Hotkeys, previousConfig?.Hotkeys, out error))
         {
             return false;
         }
@@ -309,12 +397,11 @@ public sealed class AppHost : IDisposable
 
         foreach (var monitorConfig in config.Monitors)
         {
-            foreach (var workspace in monitorConfig.Workspaces)
-            {
-                _workspaceManager.SetWorkspaceDefinition(workspace);
-                _workspaceManager.RenameWorkspace(workspace.Id, workspace.Name);
-            }
+            if (monitorConfig.Workspaces.Count == 0) continue;
+            _workspaceManager.SetMonitorWorkspaces(monitorConfig.MonitorId, monitorConfig.Workspaces);
         }
+
+        WorkspacesChanged?.Invoke(this, EventArgs.Empty);
 
         if (!string.IsNullOrEmpty(config.ActiveProfileName) && 
             (previousConfig == null || config.ActiveProfileName != previousConfig.ActiveProfileName))
@@ -488,6 +575,12 @@ public sealed class AppHost : IDisposable
                 HotkeyAction.MoveToWorkspace => () => MoveActiveWindow(binding.WorkspaceIndex),
                 HotkeyAction.ShowAllWindows => ShowAllWindows,
                 HotkeyAction.ShowOverview => ToggleOverview,
+                HotkeyAction.NextWorkspace => () => SwitchRelative(1),
+                HotkeyAction.PreviousWorkspace => () => SwitchRelative(-1),
+                HotkeyAction.MoveToNextWorkspace => () => MoveActiveWindowRelative(1),
+                HotkeyAction.MoveToPreviousWorkspace => () => MoveActiveWindowRelative(-1),
+                HotkeyAction.CreateWorkspace => CreateWorkspaceOnCurrentMonitor,
+                HotkeyAction.CloseWorkspace => CloseWorkspaceOnCurrentMonitor,
                 _ => throw new InvalidOperationException($"Unhandled hotkey action {binding.Action}")
             };
 
@@ -515,7 +608,7 @@ public sealed class AppHost : IDisposable
         }
     }
 
-    private void SwitchCurrentMonitor(int workspaceIndex)
+    private void SwitchCurrentMonitor(int workspacePosition)
     {
         // "Current monitor" is the one the pointer is on, not the one holding
         // the foreground window. Switching hides every window on the target
@@ -526,44 +619,462 @@ public sealed class AppHost : IDisposable
         var monitor = _monitorApi.GetMonitorUnderCursor();
         if (monitor is null) return;
 
-        _workspaceManager.SwitchWorkspace(monitor.Id, $"{monitor.Id}:{workspaceIndex}");
-        _trayIcon?.SetTooltip($"Windows Spaces — {monitor.Id} on space {workspaceIndex}");
+        // Resolved by position in the monitor's list, not by the space's
+        // stored index: deleting a space leaves the remaining indexes sparse
+        // (delete the 2nd of 3 and indexes 1 and 3 survive), so "switch to
+        // space 2" has to mean "the second space" or it targets nothing.
+        var targetId = _workspaceManager.GetWorkspaceIdAt(monitor.Id, workspacePosition);
+        if (targetId is null) return;
+
+        _workspaceManager.SwitchWorkspace(monitor.Id, targetId);
+        ReportActiveWorkspace(monitor.Id);
     }
 
-    private void MoveActiveWindow(int workspaceIndex)
+    private void MoveActiveWindow(int workspacePosition)
     {
         var foreground = _windowApi.GetForegroundWindow();
         var monitor = _monitorApi.GetMonitorForWindow(foreground);
         if (monitor is null) return;
 
-        _workspaceManager.AssignWindow(foreground, $"{monitor.Id}:{workspaceIndex}");
+        var targetId = _workspaceManager.GetWorkspaceIdAt(monitor.Id, workspacePosition);
+        if (targetId is null) return;
+
+        _workspaceManager.AssignWindow(foreground, targetId);
+    }
+
+    private void SwitchRelative(int delta)
+    {
+        var monitor = _monitorApi.GetMonitorUnderCursor();
+        if (monitor is null) return;
+
+        _workspaceManager.SwitchRelative(monitor.Id, delta);
+        ReportActiveWorkspace(monitor.Id);
+    }
+
+    /// <summary>
+    /// Sends the focused window to the neighbouring space and follows it
+    /// there. Without following, the window vanishes the instant it is moved
+    /// (its new space is not the active one) with nothing on screen to say
+    /// where it went.
+    /// </summary>
+    private void MoveActiveWindowRelative(int delta)
+    {
+        var foreground = _windowApi.GetForegroundWindow();
+        var monitor = _monitorApi.GetMonitorForWindow(foreground);
+        if (monitor is null) return;
+
+        var targetId = _workspaceManager.GetRelativeWorkspaceId(monitor.Id, delta);
+        if (targetId is null) return;
+
+        _workspaceManager.AssignWindow(foreground, targetId);
+        _workspaceManager.SwitchWorkspace(monitor.Id, targetId);
+        _workspaceManager.ActivateWindow(foreground);
+        ReportActiveWorkspace(monitor.Id);
+    }
+
+    private void CreateWorkspaceOnCurrentMonitor()
+    {
+        var monitor = _monitorApi.GetMonitorUnderCursor();
+        if (monitor is null) return;
+
+        if (AddWorkspace(monitor.Id, out var newWorkspaceId, out var error) && newWorkspaceId is not null)
+        {
+            _workspaceManager.SwitchWorkspace(monitor.Id, newWorkspaceId);
+            ReportActiveWorkspace(monitor.Id);
+        }
+        else if (error is not null)
+        {
+            _trayIcon?.SetTooltip($"Windows Spaces — {error}");
+        }
+    }
+
+    private void CloseWorkspaceOnCurrentMonitor()
+    {
+        var monitor = _monitorApi.GetMonitorUnderCursor();
+        if (monitor is null) return;
+
+        var active = _workspaceManager.GetActiveWorkspace(monitor.Id);
+        if (active is null) return;
+
+        if (!RemoveWorkspace(monitor.Id, active, out var error) && error is not null)
+        {
+            _trayIcon?.SetTooltip($"Windows Spaces — {error}");
+            return;
+        }
+
+        ReportActiveWorkspace(monitor.Id);
+    }
+
+    private void ReportActiveWorkspace(string monitorId)
+    {
+        var workspaces = _workspaceManager.GetWorkspaces(monitorId);
+        var activeId = _workspaceManager.GetActiveWorkspace(monitorId);
+        var name = workspaces.FirstOrDefault(w => w.Id == activeId)?.Name ?? activeId ?? "?";
+        var position = workspaces.ToList().FindIndex(w => w.Id == activeId) + 1;
+
+        _trayIcon?.SetTooltip(position > 0
+            ? $"Windows Spaces — {monitorId}: {name} ({position}/{workspaces.Count})"
+            : $"Windows Spaces — {monitorId}: {name}");
+    }
+
+    /// <summary>Raised after the configured spaces change, so open UI can refresh.</summary>
+    public event EventHandler? WorkspacesChanged;
+
+    public IReadOnlyList<Monitor> GetMonitors() => _monitorApi.GetMonitors();
+
+    /// <summary>
+    /// Creates a space on the given monitor, applies it live and persists it.
+    /// The new space's Index is one past the highest ever used on that
+    /// monitor, so ids stay unique even after deletions.
+    /// </summary>
+    public bool AddWorkspace(string monitorId, out string? newWorkspaceId, out string? error)
+    {
+        newWorkspaceId = null;
+
+        var monitorConfig = _config.Monitors.FirstOrDefault(m => m.MonitorId == monitorId);
+        var existing = monitorConfig?.Workspaces ?? Array.Empty<WorkspaceDefinition>();
+
+        if (existing.Count >= AppConfiguration.MaxWorkspacesPerMonitor)
+        {
+            error = $"A monitor can have at most {AppConfiguration.MaxWorkspacesPerMonitor} spaces.";
+            return false;
+        }
+
+        var nextIndex = existing.Count == 0 ? 1 : existing.Max(w => w.Index) + 1;
+        var candidateId = $"{monitorId}:{nextIndex}";
+
+        // Guard against an index collision from a hand-edited config where
+        // Index and the id's suffix have drifted apart.
+        while (existing.Any(w => w.Id == candidateId))
+        {
+            nextIndex++;
+            candidateId = $"{monitorId}:{nextIndex}";
+        }
+
+        var name = UniqueWorkspaceName(existing, nextIndex);
+        var updatedWorkspaces = existing.Append(new WorkspaceDefinition(candidateId, name, nextIndex)).ToList();
+
+        if (!TryUpdateMonitorWorkspaces(monitorId, updatedWorkspaces, out error)) return false;
+
+        newWorkspaceId = candidateId;
+        return true;
+    }
+
+    /// <summary>
+    /// Deletes a space, relocating any windows on it to a neighbouring space.
+    /// Refuses to delete a monitor's last space — a monitor with no spaces has
+    /// nowhere to show its windows.
+    /// </summary>
+    public bool RemoveWorkspace(string monitorId, string workspaceId, out string? error)
+    {
+        var monitorConfig = _config.Monitors.FirstOrDefault(m => m.MonitorId == monitorId);
+        if (monitorConfig is null)
+        {
+            error = $"Monitor '{monitorId}' is not configured.";
+            return false;
+        }
+
+        if (monitorConfig.Workspaces.Count <= 1)
+        {
+            error = "A monitor must keep at least one space.";
+            return false;
+        }
+
+        var updatedWorkspaces = monitorConfig.Workspaces.Where(w => w.Id != workspaceId).ToList();
+        if (updatedWorkspaces.Count == monitorConfig.Workspaces.Count)
+        {
+            error = $"Space '{workspaceId}' does not exist on monitor '{monitorId}'.";
+            return false;
+        }
+
+        return TryUpdateMonitorWorkspaces(monitorId, updatedWorkspaces, out error);
+    }
+
+    /// <summary>Renames a space, applying it live and persisting it.</summary>
+    public bool RenameWorkspace(string monitorId, string workspaceId, string newName, out string? error)
+    {
+        var monitorConfig = _config.Monitors.FirstOrDefault(m => m.MonitorId == monitorId);
+        if (monitorConfig is null)
+        {
+            error = $"Monitor '{monitorId}' is not configured.";
+            return false;
+        }
+
+        var trimmed = (newName ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            error = "A space name cannot be empty.";
+            return false;
+        }
+
+        var updatedWorkspaces = monitorConfig.Workspaces
+            .Select(w => w.Id == workspaceId ? w with { Name = trimmed } : w)
+            .ToList();
+
+        return TryUpdateMonitorWorkspaces(monitorId, updatedWorkspaces, out error);
+    }
+
+    /// <summary>
+    /// Moves one window to a space on another monitor. This is what dropping
+    /// a window tile on a different monitor's overview pane does; the window
+    /// keeps its relative position and size on the new screen.
+    /// </summary>
+    public bool MoveWindowToMonitor(nint hwnd, string targetMonitorId, string targetWorkspaceId, out string? error)
+    {
+        error = null;
+
+        if (!_tracker.TrackedWindows.TryGetValue(hwnd, out var state) || state.MonitorId is null)
+        {
+            error = "That window is no longer being tracked.";
+            return false;
+        }
+
+        if (state.MonitorId == targetMonitorId)
+        {
+            // Not a cross-monitor move at all — the plain assignment path
+            // handles it and does not need monitor geometry.
+            _workspaceManager.AssignWindow(hwnd, targetWorkspaceId);
+            return true;
+        }
+
+        if (!TryGetMonitorBounds(state.MonitorId, targetMonitorId, out var sourceBounds, out var targetBounds, out error))
+        {
+            return false;
+        }
+
+        if (!_workspaceManager.MoveWindowToMonitor(hwnd, targetMonitorId, targetWorkspaceId, sourceBounds, targetBounds))
+        {
+            error = "That space no longer exists on the target monitor.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Moves a whole space — its name and every window on it — from one
+    /// monitor to another. This is what dropping a space card on a different
+    /// monitor's overview pane does.
+    ///
+    /// The order matters and is not an implementation detail: the destination
+    /// space is created first, the windows are re-homed onto it, and only then
+    /// is the source space deleted. Deleting first would make every window on
+    /// it an orphan, and <see cref="WorkspaceManager.SetMonitorWorkspaces"/>
+    /// would rescue them onto a neighbouring space of the *source* monitor
+    /// before they ever reached the target.
+    /// </summary>
+    public bool MoveWorkspaceToMonitor(
+        string sourceMonitorId,
+        string workspaceId,
+        string targetMonitorId,
+        out string? newWorkspaceId,
+        out string? error)
+    {
+        newWorkspaceId = null;
+        error = null;
+
+        if (sourceMonitorId == targetMonitorId)
+        {
+            error = "That space is already on this monitor.";
+            return false;
+        }
+
+        var sourceConfig = _config.Monitors.FirstOrDefault(m => m.MonitorId == sourceMonitorId);
+        if (sourceConfig is null)
+        {
+            error = $"Monitor '{sourceMonitorId}' is not configured.";
+            return false;
+        }
+
+        var moving = sourceConfig.Workspaces.FirstOrDefault(w => w.Id == workspaceId);
+        if (moving is null)
+        {
+            error = $"Space '{workspaceId}' does not exist on monitor '{sourceMonitorId}'.";
+            return false;
+        }
+
+        if (sourceConfig.Workspaces.Count <= 1)
+        {
+            error = "A monitor must keep at least one space.";
+            return false;
+        }
+
+        var targetConfig = _config.Monitors.FirstOrDefault(m => m.MonitorId == targetMonitorId);
+        var targetWorkspaces = targetConfig?.Workspaces ?? Array.Empty<WorkspaceDefinition>();
+
+        if (targetWorkspaces.Count >= AppConfiguration.MaxWorkspacesPerMonitor)
+        {
+            error = $"A monitor can have at most {AppConfiguration.MaxWorkspacesPerMonitor} spaces.";
+            return false;
+        }
+
+        if (!TryGetMonitorBounds(sourceMonitorId, targetMonitorId, out var sourceBounds, out var targetBounds, out error))
+        {
+            return false;
+        }
+
+        // The space id encodes its monitor, so a moved space is a new space on
+        // the target monitor rather than the same id carried across.
+        var nextIndex = targetWorkspaces.Count == 0 ? 1 : targetWorkspaces.Max(w => w.Index) + 1;
+        var candidateId = $"{targetMonitorId}:{nextIndex}";
+        while (targetWorkspaces.Any(w => w.Id == candidateId))
+        {
+            nextIndex++;
+            candidateId = $"{targetMonitorId}:{nextIndex}";
+        }
+
+        // Keep the user's name for the space unless the target monitor already
+        // has one by that name — Validate() rejects duplicates per monitor.
+        var takenNames = targetWorkspaces.Select(w => w.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var name = takenNames.Contains(moving.Name)
+            ? UniqueWorkspaceName(targetWorkspaces, nextIndex)
+            : moving.Name;
+
+        var arrived = moving with { Id = candidateId, Name = name, Index = nextIndex };
+
+        // Step 1: create the destination space, source monitor untouched.
+        if (!TryUpdateMonitorWorkspaces(targetMonitorId, targetWorkspaces.Append(arrived).ToList(), out error))
+        {
+            return false;
+        }
+
+        // Step 2: re-home the windows onto it.
+        _workspaceManager.MoveWorkspaceWindowsToMonitor(
+            sourceMonitorId, workspaceId, targetMonitorId, candidateId, sourceBounds, targetBounds);
+
+        // Step 3: the source space is now empty, so deleting it relocates
+        // nothing. Read the source list back off _config — step 1 replaced it.
+        var remaining = _config.Monitors
+            .First(m => m.MonitorId == sourceMonitorId)
+            .Workspaces
+            .Where(w => w.Id != workspaceId)
+            .ToList();
+
+        if (!TryUpdateMonitorWorkspaces(sourceMonitorId, remaining, out error))
+        {
+            // The windows have already arrived, so this is not a rollback
+            // point: report it and leave the (now empty) source space in
+            // place rather than dragging the windows back.
+            newWorkspaceId = candidateId;
+            return false;
+        }
+
+        newWorkspaceId = candidateId;
+        return true;
+    }
+
+    private bool TryGetMonitorBounds(
+        string sourceMonitorId,
+        string targetMonitorId,
+        out System.Drawing.Rectangle sourceBounds,
+        out System.Drawing.Rectangle targetBounds,
+        out string? error)
+    {
+        sourceBounds = default;
+        targetBounds = default;
+        error = null;
+
+        var monitors = _monitorApi.GetMonitors();
+        var source = monitors.FirstOrDefault(m => m.Id == sourceMonitorId);
+        var target = monitors.FirstOrDefault(m => m.Id == targetMonitorId);
+
+        if (source is null || target is null)
+        {
+            error = "That monitor is no longer connected.";
+            return false;
+        }
+
+        sourceBounds = source.Bounds;
+        targetBounds = target.Bounds;
+        return true;
+    }
+
+    private static string UniqueWorkspaceName(IReadOnlyList<WorkspaceDefinition> existing, int startingNumber)
+    {
+        // Validate() rejects duplicate names on a monitor, so a new space
+        // whose default name collides with a renamed one has to step past it.
+        var taken = existing.Select(w => w.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var number = startingNumber;
+        while (taken.Contains($"Space {number}")) number++;
+        return $"Space {number}";
+    }
+
+    private bool TryUpdateMonitorWorkspaces(string monitorId, IReadOnlyList<WorkspaceDefinition> workspaces, out string? error)
+    {
+        var monitors = _config.Monitors.Any(m => m.MonitorId == monitorId)
+            ? _config.Monitors.Select(m => m.MonitorId == monitorId ? new MonitorWorkspaceConfig(monitorId, workspaces) : m).ToList()
+            : _config.Monitors.Append(new MonitorWorkspaceConfig(monitorId, workspaces)).ToList();
+
+        var candidate = _config with { Monitors = monitors };
+
+        if (!candidate.Validate(out error))
+        {
+            return false;
+        }
+
+        return ApplyConfiguration(candidate, out error);
     }
 
     public void ShowAllWindows() => _workspaceManager.ShowAllWindows();
+
+    private bool _closingOverview;
+
+    /// <summary>
+    /// Whether a workspace switch should be animated. Never while the overview
+    /// is open: the slide overlay is a topmost window raised over the whole
+    /// monitor, so it would paint straight over the overview panes and read as
+    /// the overview vanishing. Switches made from the overview take effect
+    /// instantly instead.
+    /// </summary>
+    private bool TransitionsEnabled() =>
+        (_config?.EnableTransitions ?? false) && _overviewWindows.Count == 0;
 
     private void ToggleOverview()
     {
         if (_overviewWindows.Count > 0)
         {
+            CloseOverview();
+            return;
+        }
+
+        // One coordinator per overview session, shared by every pane, so a
+        // drag that starts on one monitor can be resolved against another.
+        var dragCoordinator = new OverviewDragCoordinator();
+
+        foreach (var monitor in _monitorApi.GetMonitors())
+        {
+            var win = new OverviewWindow(monitor, this, _workspaceManager, _tracker, dragCoordinator);
+
+            // The overview is one surface spanning every monitor: dismissing
+            // it on one monitor has to take down the panes on the others too,
+            // or the user is left with topmost windows they can't get rid of.
+            win.CloseRequested += (_, _) => CloseOverview();
+            win.Closed += (_, _) =>
+            {
+                _overviewWindows.Remove(win);
+                if (!_closingOverview) CloseOverview();
+            };
+
+            _overviewWindows.Add(win);
+            win.Activate();
+        }
+    }
+
+    private void CloseOverview()
+    {
+        if (_closingOverview) return;
+        _closingOverview = true;
+        try
+        {
             foreach (var win in _overviewWindows.ToList())
             {
-                try { win.Close(); } catch {}
+                try { win.Close(); } catch { }
             }
             _overviewWindows.Clear();
         }
-        else
+        finally
         {
-            var monitors = _monitorApi.GetMonitors();
-            foreach (var monitor in monitors)
-            {
-                var win = new OverviewWindow(monitor.Id, _workspaceManager, _tracker, _config, monitor);
-                win.Closed += (s, e) =>
-                {
-                    _overviewWindows.Remove(win);
-                };
-                win.Activate();
-                _overviewWindows.Add(win);
-            }
+            _closingOverview = false;
         }
     }
 
@@ -580,6 +1091,16 @@ public sealed class AppHost : IDisposable
 
     public void Dispose()
     {
+        // Windows in inactive spaces are SW_HIDE'd, and nothing but this
+        // process ever shows them again — quitting without this leaves the
+        // user with windows that are running but permanently invisible, and
+        // no app left to recover them.
+        // Before ShowAllWindows: a transition still in flight would otherwise
+        // hide windows again a moment after they were shown for the last time.
+        try { _animator.Dispose(); } catch { }
+
+        try { _workspaceManager.ShowAllWindows(); } catch { }
+
         _eventSource.Stop();
         _hotkeys?.Dispose();
         _trayIcon?.Dispose();
@@ -588,10 +1109,6 @@ public sealed class AppHost : IDisposable
 
         try { _settingsWindow?.Close(); } catch {}
 
-        foreach (var win in _overviewWindows.ToList())
-        {
-            try { win.Close(); } catch {}
-        }
-        _overviewWindows.Clear();
+        CloseOverview();
     }
 }

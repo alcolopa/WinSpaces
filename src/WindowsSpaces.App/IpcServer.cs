@@ -140,6 +140,62 @@ public sealed class IpcServer : IDisposable
                 _appHost.WorkspaceManager.SwitchWorkspace(monitorId, workspaceId);
                 return new IpcResponse(true, null, $"Switched monitor {monitorId} to workspace {workspaceId}.");
 
+            case "next":
+            case "prev":
+            {
+                if (request.Arguments is null || !request.Arguments.TryGetValue("MonitorId", out var relativeMonitorId))
+                {
+                    return new IpcResponse(false, "Missing MonitorId.", null);
+                }
+
+                var delta = request.Command.Equals("next", StringComparison.OrdinalIgnoreCase) ? 1 : -1;
+                var target = _appHost.WorkspaceManager.GetRelativeWorkspaceId(relativeMonitorId, delta);
+                if (target is null)
+                {
+                    return new IpcResponse(false, $"Monitor '{relativeMonitorId}' has fewer than two spaces.", null);
+                }
+
+                _appHost.WorkspaceManager.SwitchWorkspace(relativeMonitorId, target);
+                return new IpcResponse(true, null, $"Switched monitor {relativeMonitorId} to workspace {target}.");
+            }
+
+            case "add-space":
+            {
+                if (request.Arguments is null || !request.Arguments.TryGetValue("MonitorId", out var addMonitorId))
+                {
+                    return new IpcResponse(false, "Missing MonitorId.", null);
+                }
+
+                if (!_appHost.AddWorkspace(addMonitorId, out var createdWorkspaceId, out var addError))
+                {
+                    return new IpcResponse(false, addError ?? "Could not create the space.", null);
+                }
+
+                if (createdWorkspaceId is not null)
+                {
+                    _appHost.WorkspaceManager.SwitchWorkspace(addMonitorId, createdWorkspaceId);
+                }
+
+                return new IpcResponse(true, null, $"Created workspace {createdWorkspaceId} on monitor {addMonitorId}.");
+            }
+
+            case "remove-space":
+            {
+                if (request.Arguments is null ||
+                    !request.Arguments.TryGetValue("MonitorId", out var removeMonitorId) ||
+                    !request.Arguments.TryGetValue("WorkspaceId", out var removeWorkspaceId))
+                {
+                    return new IpcResponse(false, "Missing MonitorId or WorkspaceId.", null);
+                }
+
+                if (!_appHost.RemoveWorkspace(removeMonitorId, removeWorkspaceId, out var removeError))
+                {
+                    return new IpcResponse(false, removeError ?? "Could not delete the space.", null);
+                }
+
+                return new IpcResponse(true, null, $"Deleted workspace {removeWorkspaceId} on monitor {removeMonitorId}.");
+            }
+
             case "profile":
                 if (request.Arguments is null ||
                     !request.Arguments.TryGetValue("ProfileName", out var profileName))

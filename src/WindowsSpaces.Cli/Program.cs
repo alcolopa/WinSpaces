@@ -66,6 +66,35 @@ internal static class Program
                 arguments["WorkspaceId"] = cleanArgs[2];
                 break;
 
+            case "next":
+            case "prev":
+                if (cleanArgs.Length < 2)
+                {
+                    PrintError($"Error: '{command}' command requires <monitorId>.", jsonOutput);
+                    return;
+                }
+                arguments["MonitorId"] = cleanArgs[1];
+                break;
+
+            case "add-space":
+                if (cleanArgs.Length < 2)
+                {
+                    PrintError("Error: 'add-space' command requires <monitorId>.", jsonOutput);
+                    return;
+                }
+                arguments["MonitorId"] = cleanArgs[1];
+                break;
+
+            case "remove-space":
+                if (cleanArgs.Length < 3)
+                {
+                    PrintError("Error: 'remove-space' command requires <monitorId> and <workspaceId>.", jsonOutput);
+                    return;
+                }
+                arguments["MonitorId"] = cleanArgs[1];
+                arguments["WorkspaceId"] = cleanArgs[2];
+                break;
+
             case "rules":
                 break;
 
@@ -172,6 +201,10 @@ internal static class Program
         Console.WriteLine("Usage:");
         Console.WriteLine("  ws.exe status                       Show active monitors, workspaces, and tracked windows");
         Console.WriteLine("  ws.exe switch <monitorId> <workspaceId>   Switch active workspace for a monitor");
+        Console.WriteLine("  ws.exe next <monitorId>             Switch a monitor to its next space (wraps)");
+        Console.WriteLine("  ws.exe prev <monitorId>             Switch a monitor to its previous space (wraps)");
+        Console.WriteLine("  ws.exe add-space <monitorId>        Create a new space on a monitor and switch to it");
+        Console.WriteLine("  ws.exe remove-space <monitorId> <workspaceId>   Delete a space (its windows move to a neighbour)");
         Console.WriteLine("  ws.exe profile <profileName>        Apply a workspace profile");
         Console.WriteLine("  ws.exe move-window <hwnd> <workspaceId>   Move a window to a different workspace");
         Console.WriteLine("  ws.exe rules                        List active rules");

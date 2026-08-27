@@ -52,5 +52,13 @@ public sealed class FakeWindowManager : IWindowManager
         Foreground = hwnd;
     }
 
+    public void Close(nint hwnd)
+    {
+        Operations.Add((hwnd, "Close"));
+        Closed.Add(hwnd);
+    }
+
+    public List<nint> Closed { get; } = new();
+
     public nint GetForegroundWindow() => Foreground;
 }

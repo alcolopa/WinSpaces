@@ -15,7 +15,7 @@ public class SettingsViewModelTests
     [Fact]
     public void AddWorkspace_AppendsWithNextIndexAndDefaultName()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.AddWorkspace("MON-A");
@@ -29,7 +29,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RemoveWorkspace_RemovesIt()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.RemoveWorkspace("MON-A", "MON-A:2");
@@ -42,7 +42,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RenameWorkspace_ChangesName()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.RenameWorkspace("MON-A", "MON-A:1", "Development");
@@ -54,7 +54,7 @@ public class SettingsViewModelTests
     [Fact]
     public void TrySave_ValidState_ReturnsTrueWithUpdatedConfig()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
         vm.RenameWorkspace("MON-A", "MON-A:1", "Development");
 
@@ -68,7 +68,7 @@ public class SettingsViewModelTests
     [Fact]
     public void TrySave_DuplicateNames_ReturnsFalseWithError()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
         vm.RenameWorkspace("MON-A", "MON-A:1", "Same");
         vm.RenameWorkspace("MON-A", "MON-A:2", "Same");
@@ -82,7 +82,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RemoveWorkspace_LastOneOnMonitor_TrySaveFails()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
         vm.RemoveWorkspace("MON-A", "MON-A:1");
         vm.RemoveWorkspace("MON-A", "MON-A:2");
@@ -96,7 +96,7 @@ public class SettingsViewModelTests
     [Fact]
     public void AddWorkspace_UnknownMonitorId_ThrowsArgumentException()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         Assert.Throws<ArgumentException>(() => vm.AddWorkspace("MON-UNKNOWN"));
@@ -105,7 +105,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RemoveWorkspace_UnknownMonitorId_ThrowsArgumentException()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         Assert.Throws<ArgumentException>(() => vm.RemoveWorkspace("MON-UNKNOWN", "MON-A:1"));
@@ -114,7 +114,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RenameWorkspace_UnknownMonitorId_ThrowsArgumentException()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         Assert.Throws<ArgumentException>(() => vm.RenameWorkspace("MON-UNKNOWN", "MON-A:1", "New Name"));
@@ -123,7 +123,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RemoveWorkspace_UnknownWorkspaceId_NoOps()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.RemoveWorkspace("MON-A", "MON-A:DOES-NOT-EXIST");
@@ -135,7 +135,7 @@ public class SettingsViewModelTests
     [Fact]
     public void RenameWorkspace_UnknownWorkspaceId_NoOps()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.RenameWorkspace("MON-A", "MON-A:DOES-NOT-EXIST", "New Name");
@@ -149,7 +149,7 @@ public class SettingsViewModelTests
     [Fact]
     public void Rebind_ChangesHotkeyBinding()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.Rebind(HotkeyAction.SwitchWorkspace, workspaceIndex: 1, ModifierKeys.Alt, virtualKey: 0x39);
@@ -162,7 +162,7 @@ public class SettingsViewModelTests
     [Fact]
     public void ValidateHotkeys_DetectsConflict()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         // collides with the default SwitchWorkspace-2 binding (Ctrl+Alt+2)
@@ -176,7 +176,7 @@ public class SettingsViewModelTests
     [Fact]
     public void ResetHotkeysToDefault_RestoresDefaults()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.Rebind(HotkeyAction.SwitchWorkspace, 1, ModifierKeys.Alt | ModifierKeys.Shift, 0x41);
@@ -190,12 +190,106 @@ public class SettingsViewModelTests
     [Fact]
     public void AddWorkspace_AddsHotkeysForNewIndex()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         var vm = new SettingsViewModel(config);
 
         vm.AddWorkspace("MON-A");
 
         Assert.Contains(vm.HotkeyItems, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 3);
         Assert.Contains(vm.HotkeyItems, h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == 3);
+    }
+
+    // ---- Live apply (no Save button) ------------------------------------
+
+    private static int CountChanges(SettingsViewModel vm, Action edit)
+    {
+        var changes = 0;
+        vm.Changed += (_, _) => changes++;
+        edit();
+        return changes;
+    }
+
+    [Fact]
+    public void RenamingASpace_ReportsAChange()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+
+        var changes = CountChanges(vm, () => vm.RenameWorkspace("MON-A", "MON-A:1", "Development"));
+
+        Assert.True(changes > 0);
+    }
+
+    [Fact]
+    public void AddingASpace_ReportsAChange()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+
+        var changes = CountChanges(vm, () => vm.AddWorkspace("MON-A"));
+
+        Assert.True(changes > 0);
+    }
+
+    [Fact]
+    public void RemovingASpace_ReportsAChange()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+
+        var changes = CountChanges(vm, () => vm.RemoveWorkspace("MON-A", "MON-A:2"));
+
+        Assert.True(changes > 0);
+    }
+
+    [Fact]
+    public void TogglingTransitions_ReportsAChange()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+
+        var changes = CountChanges(vm, () => vm.EnableTransitions = !vm.EnableTransitions);
+
+        Assert.True(changes > 0);
+    }
+
+    [Fact]
+    public void ASpaceRenamedToItsOwnName_ReportsNothing()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        var name = vm.Monitors.Single().Workspaces[0].Name;
+
+        var changes = CountChanges(vm, () => vm.RenameWorkspace("MON-A", "MON-A:1", name));
+
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void AShortcutBeingEdited_ReportsNothingUntilTheEditorCloses()
+    {
+        // A combination applied mid-edit would be registered system-wide,
+        // taking that key away from every other app until the user finished
+        // typing the one they actually wanted.
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        var hotkey = vm.HotkeyItems.First();
+        hotkey.IsEditing = true;
+
+        var duringEdit = CountChanges(vm, () =>
+        {
+            hotkey.Modifiers = ModifierKeys.Alt | ModifierKeys.Shift;
+            hotkey.VirtualKey = 0x41;
+        });
+
+        Assert.Equal(0, duringEdit);
+    }
+
+    [Fact]
+    public void ClosingAShortcutEditor_ReportsTheChange()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        var hotkey = vm.HotkeyItems.First();
+        hotkey.IsEditing = true;
+        hotkey.Modifiers = ModifierKeys.Alt | ModifierKeys.Shift;
+        hotkey.VirtualKey = 0x41;
+
+        var changes = CountChanges(vm, () => hotkey.IsEditing = false);
+
+        Assert.True(changes > 0);
     }
 }

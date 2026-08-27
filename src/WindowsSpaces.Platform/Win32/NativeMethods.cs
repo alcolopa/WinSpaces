@@ -112,6 +112,21 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern bool SetForegroundWindow(nint hWnd);
 
+    internal const uint WM_CLOSE = 0x0010;
+    internal const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll")]
+    internal static extern bool PostMessage(nint hWnd, uint Msg, nint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    internal static extern bool BringWindowToTop(nint hWnd);
+
     [DllImport("user32.dll")]
     internal static extern nint GetForegroundWindow();
 
@@ -177,4 +192,80 @@ internal static class NativeMethods
     internal static extern bool CloseHandle(nint hObject);
 
     internal const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    // ---- Slide-transition overlay --------------------------------------
+    //
+    // The overlay is a bare Win32 window rather than a WinUI one: it hosts
+    // nothing but DWM thumbnails, it has to live on the animator's own
+    // thread, and it must never take activation away from the user's windows.
+
+    internal delegate nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct WNDCLASSEX
+    {
+        public int cbSize;
+        public uint style;
+        [MarshalAs(UnmanagedType.FunctionPtr)]
+        public WndProc lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public nint hInstance;
+        public nint hIcon;
+        public nint hCursor;
+        public nint hbrBackground;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpszMenuName;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpszClassName;
+        public nint hIconSm;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern nint CreateWindowEx(
+        uint dwExStyle, string lpClassName, string? lpWindowName, uint dwStyle,
+        int x, int y, int nWidth, int nHeight,
+        nint hWndParent, nint hMenu, nint hInstance, nint lpParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool DestroyWindow(nint hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern nint DefWindowProc(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    internal static extern bool PeekMessage(out MSG lpMsg, nint hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern nint GetModuleHandle(string? lpModuleName);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern nint FindWindowEx(nint hwndParent, nint hwndChildAfter, string? lpszClass, string? lpszWindow);
+
+    [DllImport("gdi32.dll")]
+    internal static extern nint GetStockObject(int fnObject);
+
+    internal const int BLACK_BRUSH = 4;
+
+    internal const uint PM_REMOVE = 0x0001;
+
+    internal const uint WS_POPUP = 0x80000000;
+    internal const uint WS_VISIBLE = 0x10000000;
+
+    internal const uint WS_EX_LAYERED = 0x00080000;
+    internal const uint WS_EX_TRANSPARENT = 0x00000020;
+    internal const uint WS_EX_NOACTIVATE = 0x08000000;
+    internal const uint WS_EX_TOPMOST = 0x00000008;
+
+    internal const uint SWP_NOREDRAW = 0x0008;
+    internal const uint SWP_SHOWWINDOW = 0x0040;
+    internal const uint SWP_HIDEWINDOW = 0x0080;
+
+    internal static readonly nint HWND_TOPMOST = -1;
 }

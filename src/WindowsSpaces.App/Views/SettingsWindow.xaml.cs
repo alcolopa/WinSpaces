@@ -32,6 +32,8 @@ public sealed partial class SettingsWindow : Window
     private readonly ConfigSyncFolderCallback _setSyncFolder;
     private readonly Func<DiagnosticsSnapshot>? _getDiagnostics;
     private readonly IReadOnlyDictionary<string, string>? _activeWorkspaces;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _applyTimer;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _savedHintTimer;
 
     public SettingsWindow(
         Func<AppConfiguration> getConfig,
@@ -63,6 +65,8 @@ public sealed partial class SettingsWindow : Window
 
             EnableTransitionsToggle.IsOn = _viewModel.EnableTransitions;
             EnableTransitionsToggle.Toggled += (s, e) => _viewModel.EnableTransitions = EnableTransitionsToggle.IsOn;
+
+            _viewModel.Changed += (_, _) => ScheduleApply();
 
             RefreshSyncFolderText();
             RefreshDiagnostics();
@@ -212,7 +216,7 @@ public sealed partial class SettingsWindow : Window
     private void OnResetShortcutsClicked(object sender, RoutedEventArgs e)
     {
         _viewModel.ResetHotkeysToDefault();
-        ShowInfo("Shortcuts have been reset to factory defaults. Click Save Changes to apply.");
+        ShowInfo("Shortcuts have been reset to factory defaults.");
     }
 
     private void OnAddRuleClicked(object sender, RoutedEventArgs e)
@@ -321,8 +325,32 @@ public sealed partial class SettingsWindow : Window
         RefreshSyncFolderText();
     }
 
-    private void OnSaveClicked(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Coalesces a burst of edits into one apply. Typing a space name fires a
+    /// change per keystroke, and each apply re-registers hotkeys and rewrites
+    /// the config file — work worth doing once the user pauses, not eleven
+    /// times on the way to "Development".
+    /// </summary>
+    private void ScheduleApply()
     {
+        if (_applyTimer is null)
+        {
+            _applyTimer = DispatcherQueue.CreateTimer();
+            _applyTimer.IsRepeating = false;
+            _applyTimer.Interval = TimeSpan.FromMilliseconds(400);
+            _applyTimer.Tick += (_, _) => ApplyNow();
+        }
+
+        _applyTimer.Stop();
+        _applyTimer.Start();
+    }
+
+    private void ApplyNow()
+    {
+        // An edit part-way to being valid — a name that momentarily duplicates
+        // another, a shortcut that collides — is a normal state to pass
+        // through while typing, not a failure to shout about. Show it, keep
+        // the user's edits, and apply again on the next change.
         if (!_viewModel.TrySave(out var updated, out var error))
         {
             ShowError(error ?? "Failed to validate settings.");
@@ -335,10 +363,37 @@ public sealed partial class SettingsWindow : Window
             return;
         }
 
+        ShowSaved();
+    }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e)
+    {
+        // Anything still inside the debounce window would be lost otherwise.
+        _applyTimer?.Stop();
+        ApplyNow();
         Close();
     }
 
-    private void OnCancelClicked(object sender, RoutedEventArgs e) => Close();
+    /// <summary>
+    /// Confirms an applied change and clears any error the previous attempt
+    /// left up — a settled state should not keep showing a stale complaint.
+    /// </summary>
+    private void ShowSaved()
+    {
+        StatusInfoBar.IsOpen = false;
+        SavedHintText.Visibility = Visibility.Visible;
+
+        if (_savedHintTimer is null)
+        {
+            _savedHintTimer = DispatcherQueue.CreateTimer();
+            _savedHintTimer.IsRepeating = false;
+            _savedHintTimer.Interval = TimeSpan.FromSeconds(2);
+            _savedHintTimer.Tick += (_, _) => SavedHintText.Visibility = Visibility.Collapsed;
+        }
+
+        _savedHintTimer.Stop();
+        _savedHintTimer.Start();
+    }
 
     private void ShowError(string message)
     {

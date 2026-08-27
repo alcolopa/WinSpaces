@@ -13,22 +13,22 @@ public class AppConfigurationTests
     private static readonly Monitor MonB = new("MON-B", "\\\\.\\DISPLAY2", new Rectangle(1920, 0, 1920, 1080), IsPrimary: false);
 
     [Fact]
-    public void CreateDefault_GivesTwoWorkspacesPerMonitor_NamedSpace1AndSpace2()
+    public void CreateDefault_GivesOneWorkspacePerMonitor_NamedSpace1()
     {
         var config = AppConfiguration.CreateDefault(new[] { MonA, MonB });
 
         Assert.Equal(2, config.Monitors.Count);
         var monA = config.Monitors.Single(m => m.MonitorId == "MON-A");
-        Assert.Equal(new[] { "Space 1", "Space 2" }, monA.Workspaces.Select(w => w.Name));
-        Assert.Equal(new[] { "MON-A:1", "MON-A:2" }, monA.Workspaces.Select(w => w.Id));
+        Assert.Equal(new[] { "Space 1" }, monA.Workspaces.Select(w => w.Name));
+        Assert.Equal(new[] { "MON-A:1" }, monA.Workspaces.Select(w => w.Id));
     }
 
     [Fact]
-    public void CreateDefault_GivesTheSixExistingHotkeyBindings()
+    public void CreateDefault_GivesTheFullDefaultHotkeySet()
     {
         var config = AppConfiguration.CreateDefault(new[] { MonA });
 
-        Assert.Equal(6, config.Hotkeys.Count);
+        Assert.Equal(12, config.Hotkeys.Count);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 1
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x31);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 2
@@ -80,9 +80,9 @@ public class AppConfigurationTests
     }
 
     [Fact]
-    public void Validate_TenWorkspacesOnOneMonitor_Fails()
+    public void Validate_MoreWorkspacesThanTheCeiling_Fails()
     {
-        var workspaces = Enumerable.Range(1, 10)
+        var workspaces = Enumerable.Range(1, AppConfiguration.MaxWorkspacesPerMonitor + 1)
             .Select(i => new WorkspaceDefinition($"MON-A:{i}", $"Space {i}", i))
             .ToArray();
         var config = AppConfiguration.CreateDefault(new[] { MonA }) with
@@ -165,7 +165,7 @@ public class AppConfigurationTests
         {
             Rules = new[]
             {
-                new ApplicationRule("rule-1", "Valid Name", "notepad.exe", null, null, "MON-A", 10)
+                new ApplicationRule("rule-1", "Valid Name", "notepad.exe", null, null, "MON-A", AppConfiguration.MaxWorkspacesPerMonitor + 1)
             }
         };
 

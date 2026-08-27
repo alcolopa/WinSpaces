@@ -15,7 +15,7 @@ public class ProfilesViewModelTests
     [Fact]
     public void SaveCurrentAsProfile_AddsNewProfile()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA, MonB });
+        var config = TestConfigurations.WithTwoSpaces(MonA, MonB);
         var activeWorkspaces = new Dictionary<string, string>
         {
             { "MON-A", "MON-A:2" },
@@ -35,7 +35,7 @@ public class ProfilesViewModelTests
     [Fact]
     public void SaveCurrentAsProfile_UpdatesExistingProfile()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA, MonB }) with
+        var config = TestConfigurations.WithTwoSpaces(MonA, MonB) with
         {
             Profiles = new[]
             {
@@ -59,7 +59,7 @@ public class ProfilesViewModelTests
     [Fact]
     public void DeleteProfile_RemovesProfile()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA, MonB }) with
+        var config = TestConfigurations.WithTwoSpaces(MonA, MonB) with
         {
             Profiles = new[]
             {
@@ -80,7 +80,7 @@ public class ProfilesViewModelTests
     [Fact]
     public void SelectProfile_SetsActiveProfile()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA, MonB }) with
+        var config = TestConfigurations.WithTwoSpaces(MonA, MonB) with
         {
             Profiles = new[]
             {
@@ -97,7 +97,7 @@ public class ProfilesViewModelTests
     [Fact]
     public void TrySave_WithValidProfiles_ReturnsTrueAndUpdatedConfig()
     {
-        var config = AppConfiguration.CreateDefault(new[] { MonA, MonB });
+        var config = TestConfigurations.WithTwoSpaces(MonA, MonB);
         var activeWorkspaces = new Dictionary<string, string>
         {
             { "MON-A", "MON-A:2" }

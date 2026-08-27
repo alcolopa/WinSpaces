@@ -4,72 +4,294 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Spaces Overview">
 
-    <Grid x:Name="RootGrid" Background="#E0111115">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <Grid x:Name="RootGrid" Background="#F2101014">
+        <Grid.Resources>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="40,30,40,10" Orientation="Horizontal" HorizontalAlignment="Center">
-            <TextBlock Text="Spaces Overview — " FontSize="28" FontWeight="SemiBold" Foreground="#FFFFFF"/>
-            <TextBlock x:Name="MonitorIdText" Text="Monitor" FontSize="28" FontWeight="Light" Foreground="#A0A0A0"/>
-        </StackPanel>
+            <!-- Small circular icon button used for the per-card actions
+                 (delete space, close window). Kept borderless so it reads as
+                 an affordance on the card rather than a second-class button. -->
+            <Style x:Key="CardIconButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Foreground" Value="#8A8A9A"/>
+                <Setter Property="Padding" Value="6"/>
+                <Setter Property="MinWidth" Value="0"/>
+                <Setter Property="MinHeight" Value="0"/>
+                <Setter Property="CornerRadius" Value="6"/>
+                <Setter Property="FontFamily" Value="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                <Setter Property="FontSize" Value="12"/>
+            </Style>
 
-        <!-- Workspaces Container -->
-        <ItemsControl x:Name="WorkspacesControl" Grid.Row="1" Margin="40,20,40,40" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" Spacing="24"/>
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Grid Width="280" Height="500" Background="#1C1C24" CornerRadius="12" Padding="16">
+            <DataTemplate x:Key="WindowTileTemplate">
+                <Grid Height="76"
+                      Margin="0,0,0,8"
+                      Padding="8"
+                      Background="#23242E"
+                      CornerRadius="10"
+                      ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Preview slot. For a window in the space that is
+                         currently on screen this is where the live DWM
+                         thumbnail is composited; otherwise the letter mark
+                         underneath stays visible. -->
+                    <Grid Grid.Column="0" Width="92" Height="60">
+                        <Border Background="#171820" CornerRadius="6" BorderBrush="#31323F" BorderThickness="1">
+                            <TextBlock Text="{Binding Initial}"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       Foreground="#6B6C80"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Tag="Preview"
+                                Background="Transparent"
+                                Loaded="OnPreviewHostLoaded"
+                                Unloaded="OnPreviewHostUnloaded"
+                                SizeChanged="OnPreviewHostSizeChanged"/>
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="{Binding Title}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="#EDEDF2"
+                                   TextTrimming="CharacterEllipsis"
+                                   MaxLines="2"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Subtitle}"
+                                   FontSize="11"
+                                   Foreground="#7B7C8E"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="2"
+                            VerticalAlignment="Top"
+                            Style="{StaticResource CardIconButtonStyle}"
+                            Tag="{Binding}"
+                            Content="&#xE711;"
+                            Click="OnCloseWindowClicked"
+                            ToolTipService.ToolTip="Close this window"/>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="WorkspaceCardTemplate">
+                <Grid Width="300" Height="520">
+
+                    <Border Background="#1A1B23" CornerRadius="14" BorderBrush="#2B2C38" BorderThickness="1"/>
+                    <Border CornerRadius="14" Background="#1F4D9FEF" Visibility="{Binding DropTargetVisibility}"/>
+                    <Border CornerRadius="14" BorderBrush="#7A6BF0" BorderThickness="2" Visibility="{Binding SelectionBorderVisibility}"/>
+                    <Border CornerRadius="14" BorderBrush="#4D9FEF" BorderThickness="2" Visibility="{Binding ActiveBorderVisibility}"/>
+
+                    <Grid Margin="14" RowSpacing="10">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <!-- Border highlight for active workspace -->
-                        <Border BorderBrush="#4D9FEF" BorderThickness="2" CornerRadius="12" Margin="-16"
-                                Visibility="{Binding ActiveBorderVisibility}"/>
+                        <!-- Header: position badge, name (with inline rename), delete -->
+                        <Grid Grid.Row="0" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                        <!-- Workspace Header -->
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16" Spacing="8">
-                            <Ellipse Width="10" Height="10" Fill="#4D9FEF" Visibility="{Binding ActiveIndicatorVisibility}"/>
-                            <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                            <Border Grid.Column="0"
+                                    Width="24" Height="24"
+                                    CornerRadius="12"
+                                    Background="#2E3040">
+                                <TextBlock Text="{Binding PositionLabel}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="#B9BAC9"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding Name}"
+                                       Visibility="{Binding NameTextVisibility}"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="#F2F2F7"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding Name}"
+                                     Tag="{Binding}"
+                                     Visibility="{Binding NameEditVisibility}"
+                                     FontSize="15"
+                                     Padding="6,2"
+                                     Loaded="OnRenameBoxLoaded"
+                                     KeyDown="OnRenameBoxKeyDown"
+                                     LostFocus="OnRenameBoxLostFocus"/>
+
+                            <Button Grid.Column="2"
+                                    Style="{StaticResource CardIconButtonStyle}"
+                                    Visibility="{Binding NameTextVisibility}"
+                                    Tag="{Binding}"
+                                    Content="&#xE70F;"
+                                    Click="OnRenameWorkspaceClicked"
+                                    ToolTipService.ToolTip="Rename this space (F2)"/>
+
+                            <Button Grid.Column="3"
+                                    Style="{StaticResource CardIconButtonStyle}"
+                                    Visibility="{Binding RemoveButtonVisibility}"
+                                    Tag="{Binding}"
+                                    Content="&#xE74D;"
+                                    Click="OnRemoveWorkspaceClicked"
+                                    ToolTipService.ToolTip="Delete this space (its windows move to a neighbouring space)"/>
+                        </Grid>
+
+                        <!-- Status line -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8"
+                                     Fill="#4D9FEF"
+                                     VerticalAlignment="Center"
+                                     Visibility="{Binding ActiveIndicatorVisibility}"/>
+                            <TextBlock Text="{Binding StatusLabel}" FontSize="11" Foreground="#8A8B9C" VerticalAlignment="Center"/>
+                            <TextBlock Text="·" FontSize="11" Foreground="#54556A" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding WindowCountLabel}" FontSize="11" Foreground="#8A8B9C" VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <!-- Window Cards Grid -->
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding Windows}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <!-- Card representation -->
-                                        <Grid Height="90" Background="#262630" CornerRadius="8" Padding="10"
-                                              Tag="{Binding Hwnd}">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="*"/>
-                                            </Grid.RowDefinitions>
+                        <!-- Windows -->
+                        <Grid Grid.Row="2">
+                            <TextBlock Text="Drop a window here"
+                                       Visibility="{Binding EmptyHintVisibility}"
+                                       FontSize="12"
+                                       Foreground="#4E4F63"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
 
-                                            <!-- Window Title -->
-                                            <TextBlock Grid.Row="0" Text="{Binding Title}" FontSize="12" FontWeight="Medium" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
-
-                                            <!-- Placeholder for DWM Preview or process info -->
-                                            <Border Tag="ThumbnailPlaceholder" Grid.Row="1" Background="#1C1C24" CornerRadius="4" BorderBrush="#3A3A4A" BorderThickness="1">
-                                                <TextBlock Text="{Binding ProcessPath}" FontSize="9" Foreground="#606070" HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="4,0,4,0"/>
-                                            </Border>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding Windows}"
+                                              ItemTemplate="{StaticResource WindowTileTemplate}"/>
+                            </ScrollViewer>
+                        </Grid>
                     </Grid>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+                </Grid>
+            </DataTemplate>
+        </Grid.Resources>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="48,28,48,4" Spacing="4">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="Spaces" FontSize="26" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                <TextBlock x:Name="MonitorIdText"
+                           Text="Monitor"
+                           FontSize="26"
+                           FontWeight="Light"
+                           Foreground="#7C7D91"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock x:Name="StatusText"
+                       FontSize="12"
+                       Foreground="#F0A860"
+                       Visibility="Collapsed"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- Spaces strip -->
+        <ScrollViewer Grid.Row="1"
+                      HorizontalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Enabled"
+                      VerticalScrollBarVisibility="Disabled"
+                      VerticalScrollMode="Disabled"
+                      Padding="0,12,0,12">
+            <StackPanel Orientation="Horizontal" Spacing="18" Margin="48,0" VerticalAlignment="Center">
+                <ItemsControl x:Name="WorkspacesControl" ItemTemplate="{StaticResource WorkspaceCardTemplate}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="18"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+
+                <Button x:Name="AddSpaceButton"
+                        Width="160"
+                        Height="520"
+                        Background="#15161D"
+                        BorderBrush="#2B2C38"
+                        BorderThickness="1"
+                        CornerRadius="14"
+                        Click="OnAddWorkspaceClicked"
+                        ToolTipService.ToolTip="Create a new space on this monitor (N)">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="&#xE710;"
+                                   FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                   FontSize="22"
+                                   Foreground="#7C7D91"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="New space"
+                                   FontSize="13"
+                                   Foreground="#9A9BAC"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Keyboard hints -->
+        <TextBlock Grid.Row="2"
+                   Margin="48,4,48,24"
+                   FontSize="11"
+                   Foreground="#5E5F73"
+                   TextWrapping="Wrap"
+                   Text="Click a space to switch to it  ·  click a window to focus it  ·  drag a window between spaces or onto another monitor  ·  drag a space card onto another monitor to move the whole space  ·  ← → select  ·  Enter switch  ·  1-9 jump  ·  N new space  ·  F2 rename  ·  Delete remove space  ·  Esc close"/>
+
+        <!-- Whole-pane drop target, shown while a space card from another
+             monitor is being dragged over this monitor. Hit-test-invisible so
+             it never swallows the drop it is advertising. -->
+        <Grid x:Name="PaneDropTarget"
+              Grid.Row="0" Grid.RowSpan="3"
+              Visibility="Collapsed"
+              IsHitTestVisible="False">
+            <Border Background="#144D9FEF" BorderBrush="#4D9FEF" BorderThickness="3"/>
+            <Border VerticalAlignment="Top"
+                    HorizontalAlignment="Center"
+                    Margin="0,24,0,0"
+                    Padding="14,6"
+                    CornerRadius="8"
+                    Background="#E6202234">
+                <TextBlock x:Name="PaneDropTargetText"
+                           FontSize="13"
+                           Foreground="#DCDDE8"/>
+            </Border>
+        </Grid>
+
+        <!-- Drag ghost. Hit-test-invisible so it never intercepts the pointer
+             it is following. -->
+        <Canvas x:Name="DragLayer" Grid.Row="0" Grid.RowSpan="3" IsHitTestVisible="False">
+            <Border x:Name="DragGhost"
+                    Visibility="Collapsed"
+                    Width="200"
+                    Height="52"
+                    Padding="10"
+                    Background="#E62B2D3C"
+                    CornerRadius="10"
+                    BorderBrush="#4D9FEF"
+                    BorderThickness="1">
+                <TextBlock x:Name="DragGhostText"
+                           FontSize="12"
+                           Foreground="#FFFFFF"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+            </Border>
+        </Canvas>
     </Grid>
 </Window>

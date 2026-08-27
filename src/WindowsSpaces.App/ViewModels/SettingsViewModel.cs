@@ -18,8 +18,21 @@ public sealed class SettingsViewModel : ViewModelBase
     public bool EnableTransitions
     {
         get => _enableTransitions;
-        set => SetProperty(ref _enableTransitions, value);
+        set { if (SetProperty(ref _enableTransitions, value)) RaiseChanged(); }
     }
+
+    /// <summary>
+    /// Raised when an edit has produced settings worth applying. The window
+    /// listens for this instead of a Save button.
+    ///
+    /// A shortcut row is deliberately silent while it is being edited and
+    /// speaks up only when its edit toggle closes: registering a half-typed
+    /// combination would take that key away from every other application on
+    /// the machine for as long as it took to finish typing.
+    /// </summary>
+    public event EventHandler? Changed;
+
+    private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
     public SettingsViewModel(AppConfiguration current)
     {
@@ -42,19 +55,66 @@ public sealed class SettingsViewModel : ViewModelBase
             SubscribeHotkey(hk);
         }
 
+        WatchForChanges();
         ValidateHotkeys();
+    }
+
+    /// <summary>
+    /// Subscribes to every part of the edit graph — the collections, the
+    /// items in them, and, for a monitor, its own list of spaces — so any
+    /// edit anywhere in the window reaches <see cref="Changed"/>.
+    /// </summary>
+    private void WatchForChanges()
+    {
+        WatchCollection(MonitorItems, WatchMonitor);
+        WatchCollection(RuleItems, WatchItem);
+        WatchCollection(ProfileItems, _ => { });
+        WatchCollection(HotkeyItems, _ => { });
+    }
+
+    private void WatchCollection<T>(ObservableCollection<T> collection, Action<T> watchItem)
+    {
+        foreach (var item in collection) watchItem(item);
+
+        collection.CollectionChanged += (_, e) =>
+        {
+            foreach (var item in e.NewItems?.Cast<T>() ?? Enumerable.Empty<T>()) watchItem(item);
+            RaiseChanged();
+        };
+    }
+
+    private void WatchItem(ViewModelBase item) => item.PropertyChanged += (_, _) => RaiseChanged();
+
+    private void WatchMonitor(MonitorItemViewModel monitor)
+    {
+        WatchItem(monitor);
+        WatchCollection(monitor.Workspaces, WatchItem);
     }
 
     private void SubscribeHotkey(HotkeyItemViewModel item)
     {
         item.PropertyChanged += (s, e) =>
         {
-            if (!_isValidating && e.PropertyName is not (nameof(HotkeyItemViewModel.HasConflict) 
-                                                      or nameof(HotkeyItemViewModel.ConflictMessage) 
-                                                      or nameof(HotkeyItemViewModel.IsEditing)))
+            if (_isValidating) return;
+
+            if (e.PropertyName is nameof(HotkeyItemViewModel.IsEditing))
             {
-                ValidateHotkeys();
+                // Closing the editor is the commit point for a shortcut.
+                if (!item.IsEditing) RaiseChanged();
+                return;
             }
+
+            if (e.PropertyName is nameof(HotkeyItemViewModel.HasConflict)
+                               or nameof(HotkeyItemViewModel.ConflictMessage))
+            {
+                return;
+            }
+
+            ValidateHotkeys();
+
+            // A row edited outside the editor toggle (the reset-to-defaults
+            // button rewrites every row) still has to reach the host.
+            if (!item.IsEditing) RaiseChanged();
         };
     }
 
@@ -82,12 +142,17 @@ public sealed class SettingsViewModel : ViewModelBase
 
     private void EnsureHotkeysForWorkspaceIndex(int index)
     {
-        if (index < 1 || index > 9) return;
+        // Only the first nine spaces get a number-key binding; past that,
+        // next/previous and the overview are how a space is reached.
+        if (index < 1 || index > AppConfiguration.MaxDirectSwitchWorkspaces) return;
 
+        // Ctrl+Alt+N and Ctrl+Alt+Shift+N, matching the shipped defaults.
+        // Plain Ctrl+N would be registered system-wide and take tab switching
+        // away from every browser and editor on the machine.
         if (!HotkeyItems.Any(h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == index))
         {
             var key = 0x30 + index;
-            var binding = new HotkeyBinding(HotkeyAction.SwitchWorkspace, index, ModifierKeys.Control, key);
+            var binding = new HotkeyBinding(HotkeyAction.SwitchWorkspace, index, ModifierKeys.Control | ModifierKeys.Alt, key);
             var item = new HotkeyItemViewModel(binding);
             SubscribeHotkey(item);
             HotkeyItems.Add(item);
@@ -96,7 +161,7 @@ public sealed class SettingsViewModel : ViewModelBase
         if (!HotkeyItems.Any(h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == index))
         {
             var key = 0x30 + index;
-            var binding = new HotkeyBinding(HotkeyAction.MoveToWorkspace, index, ModifierKeys.Control | ModifierKeys.Shift, key);
+            var binding = new HotkeyBinding(HotkeyAction.MoveToWorkspace, index, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, key);
             var item = new HotkeyItemViewModel(binding);
             SubscribeHotkey(item);
             HotkeyItems.Add(item);

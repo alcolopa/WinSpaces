@@ -44,7 +44,7 @@ public class OverviewViewModelTests
 
         tracker.Rescan();
 
-        var config = AppConfiguration.CreateDefault(new[] { MonA, MonB });
+        var config = TestConfigurations.WithTwoSpaces(MonA, MonB);
         manager.RenameWorkspace("MON-A:1", "Space 1");
         manager.RenameWorkspace("MON-A:2", "Space 2");
         manager.SwitchWorkspace("MON-A", "MON-A:1");
@@ -86,7 +86,7 @@ public class OverviewViewModelTests
 
         tracker.Rescan();
 
-        var config = AppConfiguration.CreateDefault(new[] { MonA });
+        var config = TestConfigurations.WithTwoSpaces(MonA);
         manager.RenameWorkspace("MON-A:1", "Space 1");
         manager.RenameWorkspace("MON-A:2", "Space 2");
         manager.SwitchWorkspace("MON-A", "MON-A:1");
