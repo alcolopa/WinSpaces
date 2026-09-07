@@ -199,6 +199,68 @@ public class SettingsViewModelTests
         Assert.Contains(vm.HotkeyItems, h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == 3);
     }
 
+    // ---- Per-space shortcut grouping -------------------------------------
+    //
+    // The Shortcuts page shows one row per per-space action (Switch/Move to
+    // Space), not one per space number — HotkeyItems still holds the full
+    // flat list underneath for persistence and conflict-checking.
+
+    [Fact]
+    public void DisplayedHotkeyItems_ShowsOneRowPerPerSpaceAction_NotOnePerSpaceNumber()
+    {
+        var config = TestConfigurations.WithTwoSpaces(MonA);
+        var vm = new SettingsViewModel(config);
+
+        Assert.Equal(2, vm.HotkeyItems.Count(h => h.Action == HotkeyAction.SwitchWorkspace));
+        Assert.Single(vm.DisplayedHotkeyItems, h => h.Action == HotkeyAction.SwitchWorkspace);
+        Assert.Equal(2, vm.HotkeyItems.Count(h => h.Action == HotkeyAction.MoveToWorkspace));
+        Assert.Single(vm.DisplayedHotkeyItems, h => h.Action == HotkeyAction.MoveToWorkspace);
+    }
+
+    [Fact]
+    public void DisplayedHotkeyItems_RepresentativeIsTheLowestSpaceNumber()
+    {
+        var config = TestConfigurations.WithTwoSpaces(MonA);
+        var vm = new SettingsViewModel(config);
+
+        var shown = vm.DisplayedHotkeyItems.Single(h => h.Action == HotkeyAction.SwitchWorkspace);
+        Assert.Equal(1, shown.WorkspaceIndex);
+        Assert.True(shown.RepresentsDigitGroup);
+    }
+
+    [Fact]
+    public void ClosingTheGroupRepresentativeEditor_PropagatesModifiersToEverySpaceNumber()
+    {
+        var config = TestConfigurations.WithTwoSpaces(MonA);
+        var vm = new SettingsViewModel(config);
+        var representative = vm.DisplayedHotkeyItems.Single(h => h.Action == HotkeyAction.SwitchWorkspace);
+
+        representative.IsEditing = true;
+        representative.Modifiers = ModifierKeys.Alt | ModifierKeys.Shift;
+        representative.IsEditing = false;
+
+        var other = vm.HotkeyItems.Single(h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 2);
+        Assert.Equal(ModifierKeys.Alt | ModifierKeys.Shift, other.Modifiers);
+        // Each space keeps its own digit key — only the combo is shared.
+        Assert.Equal(0x32, other.VirtualKey);
+    }
+
+    [Fact]
+    public void AddWorkspace_NewSpaceNumberInheritsTheGroupsCurrentModifiers()
+    {
+        var config = TestConfigurations.WithTwoSpaces(MonA);
+        var vm = new SettingsViewModel(config);
+        var representative = vm.DisplayedHotkeyItems.Single(h => h.Action == HotkeyAction.SwitchWorkspace);
+        representative.IsEditing = true;
+        representative.Modifiers = ModifierKeys.Alt | ModifierKeys.Shift;
+        representative.IsEditing = false;
+
+        vm.AddWorkspace("MON-A");
+
+        var third = vm.HotkeyItems.Single(h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 3);
+        Assert.Equal(ModifierKeys.Alt | ModifierKeys.Shift, third.Modifiers);
+    }
+
     // ---- Live apply (no Save button) ------------------------------------
 
     private static int CountChanges(SettingsViewModel vm, Action edit)

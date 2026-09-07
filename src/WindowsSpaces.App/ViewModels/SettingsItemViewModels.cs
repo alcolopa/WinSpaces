@@ -30,6 +30,7 @@ public sealed class HotkeyItemViewModel : ViewModelBase
     private bool _isEditing;
     private bool _hasConflict;
     private string? _conflictMessage;
+    private bool _representsDigitGroup;
 
     public HotkeyItemViewModel(HotkeyBinding binding)
     {
@@ -133,6 +134,30 @@ public sealed class HotkeyItemViewModel : ViewModelBase
         set => SetProperty(ref _isEditing, value);
     }
 
+    /// <summary>
+    /// True for the single row shown in the Shortcuts page that stands in
+    /// for the whole family of per-space bindings (Switch/Move to Space
+    /// 1 through <see cref="AppConfiguration.MaxDirectSwitchWorkspaces"/>) —
+    /// set by <see cref="SettingsViewModel"/>, never by this class itself.
+    /// Editing its modifiers is what lets the user set the combo once
+    /// instead of once per space number; the key picker is hidden for it
+    /// since the digit is implied per space, not a single fixed key.
+    /// </summary>
+    public bool RepresentsDigitGroup
+    {
+        get => _representsDigitGroup;
+        set
+        {
+            if (SetProperty(ref _representsDigitGroup, value))
+            {
+                OnPropertyChanged(nameof(ShowKeyPicker));
+                UpdateDerivedProperties();
+            }
+        }
+    }
+
+    public bool ShowKeyPicker => !RepresentsDigitGroup;
+
     public bool HasConflict
     {
         get => _hasConflict;
@@ -156,8 +181,8 @@ public sealed class HotkeyItemViewModel : ViewModelBase
     {
         Title = Action switch
         {
-            HotkeyAction.SwitchWorkspace => $"Switch to Space {WorkspaceIndex}",
-            HotkeyAction.MoveToWorkspace => $"Move Window to Space {WorkspaceIndex}",
+            HotkeyAction.SwitchWorkspace => RepresentsDigitGroup ? "Switch to Space" : $"Switch to Space {WorkspaceIndex}",
+            HotkeyAction.MoveToWorkspace => RepresentsDigitGroup ? "Move Window to Space" : $"Move Window to Space {WorkspaceIndex}",
             HotkeyAction.ShowAllWindows => "Show All Windows",
             HotkeyAction.ShowOverview => "Spaces Overview",
             HotkeyAction.NextWorkspace => "Next Space",
@@ -166,6 +191,8 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.MoveToPreviousWorkspace => "Move Window to Previous Space",
             HotkeyAction.CreateWorkspace => "New Space",
             HotkeyAction.CloseWorkspace => "Delete Current Space",
+            HotkeyAction.MoveToNextMonitor => "Move Window to Next Monitor",
+            HotkeyAction.MoveToPreviousMonitor => "Move Window to Previous Monitor",
             _ => Action.ToString()
         };
 
@@ -181,6 +208,8 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.CloseWorkspace => "Manage Spaces",
             HotkeyAction.ShowAllWindows => "Recovery & Utilities",
             HotkeyAction.ShowOverview => "Recovery & Utilities",
+            HotkeyAction.MoveToNextMonitor => "Window Management",
+            HotkeyAction.MoveToPreviousMonitor => "Window Management",
             _ => "General"
         };
 
@@ -196,13 +225,19 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.CloseWorkspace => "\uE74D", // Delete
             HotkeyAction.ShowAllWindows => "\uE737", // Eye / View
             HotkeyAction.ShowOverview => "\uE7F4", // Tiles / ViewAll
+            HotkeyAction.MoveToNextMonitor => "\uE8A9", // MapPin-ish / go-to
+            HotkeyAction.MoveToPreviousMonitor => "\uE8A9",
             _ => "\uE765"
         };
 
         Description = Action switch
         {
-            HotkeyAction.SwitchWorkspace => $"Switches active workspace on the current monitor to Space {WorkspaceIndex}.",
-            HotkeyAction.MoveToWorkspace => $"Moves the currently focused window to Space {WorkspaceIndex} on its monitor.",
+            HotkeyAction.SwitchWorkspace => RepresentsDigitGroup
+                ? $"Switches active workspace on the current monitor to Space N — this combo plus 1-{AppConfiguration.MaxDirectSwitchWorkspaces} switches to that numbered space."
+                : $"Switches active workspace on the current monitor to Space {WorkspaceIndex}.",
+            HotkeyAction.MoveToWorkspace => RepresentsDigitGroup
+                ? $"Moves the currently focused window to Space N on its monitor — this combo plus 1-{AppConfiguration.MaxDirectSwitchWorkspaces} moves it to that numbered space."
+                : $"Moves the currently focused window to Space {WorkspaceIndex} on its monitor.",
             HotkeyAction.ShowAllWindows => "Unhides all tracked windows across all monitors (emergency recovery).",
             HotkeyAction.ShowOverview => "Opens the interactive Spaces Overview workspace layout across monitors.",
             HotkeyAction.NextWorkspace => "Cycles the monitor under the pointer to the next space, wrapping past the last one.",
@@ -211,11 +246,23 @@ public sealed class HotkeyItemViewModel : ViewModelBase
             HotkeyAction.MoveToPreviousWorkspace => "Sends the focused window to the previous space on its monitor and follows it there.",
             HotkeyAction.CreateWorkspace => "Creates a new space on the monitor under the pointer and switches to it.",
             HotkeyAction.CloseWorkspace => "Deletes the space showing on the monitor under the pointer; its windows move to a neighbouring space.",
+            HotkeyAction.MoveToNextMonitor => "Sends the focused window to the next monitor's active space and follows it there.",
+            HotkeyAction.MoveToPreviousMonitor => "Sends the focused window to the previous monitor's active space and follows it there.",
             _ => string.Empty
         };
 
-        FormattedDisplay = VirtualKeyHelper.FormatHotkey(Modifiers, VirtualKey);
-        KeyPills = VirtualKeyHelper.GetKeyPills(Modifiers, VirtualKey);
+        if (RepresentsDigitGroup)
+        {
+            var modifierPills = VirtualKeyHelper.GetKeyPills(Modifiers, VirtualKey);
+            modifierPills[^1] = $"1-{AppConfiguration.MaxDirectSwitchWorkspaces}";
+            KeyPills = modifierPills;
+            FormattedDisplay = string.Join(" + ", modifierPills);
+        }
+        else
+        {
+            FormattedDisplay = VirtualKeyHelper.FormatHotkey(Modifiers, VirtualKey);
+            KeyPills = VirtualKeyHelper.GetKeyPills(Modifiers, VirtualKey);
+        }
 
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Category));

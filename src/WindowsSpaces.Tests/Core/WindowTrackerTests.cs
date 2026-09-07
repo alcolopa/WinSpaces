@@ -92,6 +92,29 @@ public class WindowTrackerTests
     }
 
     [Fact]
+    public void HandleEvent_ForTrackedWindowThatBecomesCloaked_Untracks()
+    {
+        var (tracker, wm, events, _, _) = Build();
+        var hwnd = (nint)7;
+        wm.Windows[hwnd] = new WindowState
+        {
+            Hwnd = hwnd, ProcessId = 5, IsVisible = true,
+            NormalBounds = new Rectangle(1, 1, 1, 1), LastUpdated = DateTimeOffset.UtcNow
+        };
+        events.Raise(new WindowEvent(WindowEventKind.Created, hwnd, DateTimeOffset.UtcNow));
+        Assert.True(tracker.TrackedWindows.ContainsKey(hwnd));
+
+        // Background shell surfaces (Start, Search, Task View, …) stay alive
+        // and simply get DWM-cloaked once dismissed instead of being
+        // destroyed — the tracker should drop them at that point rather
+        // than keeping them assigned to a workspace forever.
+        wm.CloakedWindows.Add(hwnd);
+        events.Raise(new WindowEvent(WindowEventKind.Hidden, hwnd, DateTimeOffset.UtcNow));
+
+        Assert.False(tracker.TrackedWindows.ContainsKey(hwnd));
+    }
+
+    [Fact]
     public void HandleEvent_ForTrackedWindow_PreservesExistingAssignmentAcrossRefresh()
     {
         var (tracker, wm, events, monitors, _) = Build();

@@ -66,7 +66,14 @@ public sealed record AppConfiguration(
             // VK_OEM_PLUS (0xBB) / VK_OEM_MINUS (0xBD) — the same pairing
             // Windows itself uses for adding and removing virtual desktops.
             new(HotkeyAction.CreateWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0xBB),
-            new(HotkeyAction.CloseWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0xBD)
+            new(HotkeyAction.CloseWorkspace, 0, ModifierKeys.Control | ModifierKeys.Alt, 0xBD),
+
+            // Send the focused window to the next/previous monitor and follow
+            // it there. VK_DOWN (0x28) / VK_UP (0x26) — Up/Down free up the
+            // Left/Right pair (already Ctrl+Alt+Shift for the within-monitor
+            // move) for the monitor axis instead.
+            new(HotkeyAction.MoveToNextMonitor, 0, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x28),
+            new(HotkeyAction.MoveToPreviousMonitor, 0, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, 0x26)
         };
 
         return new AppConfiguration(

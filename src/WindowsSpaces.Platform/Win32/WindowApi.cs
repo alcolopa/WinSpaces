@@ -44,10 +44,34 @@ public sealed class WindowApi : IWindowManager
         "WorkerW",
         "Shell_TrayWnd",
         "Shell_SecondaryTrayWnd",
-        "Button" // classic Start button, present on some configurations
+        "Button", // classic Start button, present on some configurations
+        "TopLevelWindowForOverflowXamlIsland" // taskbar's hidden tray-icon overflow flyout host
+    };
+
+    // Windows keeps these shell-surface hosts (Start menu, Search, Task View,
+    // touch keyboard/emoji panel) running persistently in the background and
+    // reuses one window per host rather than creating/destroying it each time
+    // the user opens and dismisses it. That window is genuinely visible and
+    // uncloaked at the moment the user invokes it, so it passes every other
+    // check here and gets tracked once — then, because it's never destroyed,
+    // it lingers in the workspace's window list forever, looking like a
+    // permanently "open" app the user never actually launched. Exclude these
+    // hosts by process name so they're never tracked in the first place.
+    private static readonly HashSet<string> ShellHostProcessNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SearchHost",
+        "StartMenuExperienceHost",
+        "ShellExperienceHost",
+        "TextInputHost",
+        "ShellHost"
     };
 
     public bool IsManageable(nint hwnd) => IsManagedTopLevelWindow(hwnd);
+
+    public bool IsCloaked(nint hwnd) => IsWindowCloaked(hwnd);
+
+    private static bool IsWindowCloaked(nint hwnd) =>
+        DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out var cloaked, sizeof(int)) == 0 && cloaked != 0;
 
     /// <summary>
     /// This process. Our own UI (the overview panes, Settings, Shortcuts, …)
@@ -71,13 +95,70 @@ public sealed class WindowApi : IWindowManager
         if (GetWindowTextLength(hWnd) == 0) return false;
 
         var classBuilder = new System.Text.StringBuilder(256);
-        if (GetClassName(hWnd, classBuilder, classBuilder.Capacity) > 0 &&
-            ShellWindowClasses.Contains(classBuilder.ToString()))
+        var windowClass = GetClassName(hWnd, classBuilder, classBuilder.Capacity) > 0 ? classBuilder.ToString() : string.Empty;
+        if (ShellWindowClasses.Contains(windowClass))
+        {
+            return false;
+        }
+
+        // DWM-cloaked windows (e.g. UWP/Store app host windows kept alive off-
+        // screen, and other background frame windows) report IsWindowVisible
+        // == true despite never actually being drawn or seen by the user.
+        // Without this check every such window gets tracked and dumped onto
+        // a workspace like a real user window, so a workspace can appear to
+        // list "every process" instead of just what the user actually opened.
+        if (IsWindowCloaked(hWnd))
+        {
+            return false;
+        }
+
+        var processName = GetProcessName(owningProcessId);
+        if (ShellHostProcessNames.Contains(processName))
+        {
+            return false;
+        }
+
+        // Task View / "Running applications" is a shell CoreWindow hosted
+        // inside explorer.exe itself, indistinguishable from other shell
+        // surfaces except that it lives in explorer's process. Real File
+        // Explorer windows never use this class (they're CabinetWClass), so
+        // this can't exclude an actual File Explorer window.
+        if (string.Equals(processName, "explorer", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(windowClass, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Chromium (Edge/Chrome/any Chromium-based app) creates a hidden
+        // internal helper window with this exact literal title as part of
+        // its own window management — never real user-facing content, and
+        // Windows still reports it visible/uncloaked.
+        var titleBuilder = new System.Text.StringBuilder(256);
+        if (GetWindowText(hWnd, titleBuilder, titleBuilder.Capacity) > 0 &&
+            titleBuilder.ToString() == "Chrome Legacy Window")
         {
             return false;
         }
 
         return true;
+    }
+
+    private static string GetProcessName(uint processId)
+    {
+        var hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (int)processId);
+        if (hProcess == 0) return string.Empty;
+
+        try
+        {
+            var size = 1024;
+            var pathBuilder = new System.Text.StringBuilder(size);
+            if (!QueryFullProcessImageName(hProcess, 0, pathBuilder, ref size)) return string.Empty;
+            return System.IO.Path.GetFileNameWithoutExtension(pathBuilder.ToString());
+        }
+        finally
+        {
+            CloseHandle(hProcess);
+        }
     }
 
     public WindowState? GetWindowState(nint hwnd)

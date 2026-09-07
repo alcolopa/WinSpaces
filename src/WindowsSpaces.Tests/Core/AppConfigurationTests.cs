@@ -28,7 +28,7 @@ public class AppConfigurationTests
     {
         var config = AppConfiguration.CreateDefault(new[] { MonA });
 
-        Assert.Equal(12, config.Hotkeys.Count);
+        Assert.Equal(14, config.Hotkeys.Count);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 1
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && h.VirtualKey == 0x31);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == 2
@@ -41,6 +41,10 @@ public class AppConfigurationTests
             && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && h.VirtualKey == 0x24);
         Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.ShowOverview
             && h.Modifiers == ModifierKeys.Control && h.VirtualKey == 0x26);
+        Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.MoveToNextMonitor
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x28);
+        Assert.Contains(config.Hotkeys, h => h.Action == HotkeyAction.MoveToPreviousMonitor
+            && h.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) && h.VirtualKey == 0x26);
     }
 
     [Fact]

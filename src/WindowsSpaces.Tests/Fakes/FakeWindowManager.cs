@@ -24,6 +24,10 @@ public sealed class FakeWindowManager : IWindowManager
 
     public bool IsManageable(nint hwnd) => Windows.ContainsKey(hwnd);
 
+    public HashSet<nint> CloakedWindows { get; } = new();
+
+    public bool IsCloaked(nint hwnd) => CloakedWindows.Contains(hwnd);
+
     public WindowState? GetWindowState(nint hwnd) => Windows.GetValueOrDefault(hwnd);
 
     public void Hide(nint hwnd)

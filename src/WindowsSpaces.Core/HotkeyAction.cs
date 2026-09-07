@@ -27,5 +27,11 @@ public enum HotkeyAction
     CreateWorkspace,
 
     /// <summary>Delete the active space on the monitor under the cursor, relocating its windows to a neighbour.</summary>
-    CloseWorkspace
+    CloseWorkspace,
+
+    /// <summary>Move the focused window to the next monitor's currently active space and follow it there.</summary>
+    MoveToNextMonitor,
+
+    /// <summary>Move the focused window to the previous monitor's currently active space and follow it there.</summary>
+    MoveToPreviousMonitor
 }

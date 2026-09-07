@@ -181,6 +181,20 @@ public sealed class WindowTracker
     {
         if (!_tracked.TryGetValue(hwnd, out var existing)) return;
 
+        // Background shell surfaces (Start, Search, Task View, the tray
+        // overflow flyout, …) are genuinely visible and uncloaked at the
+        // moment the user invokes them, so they get tracked like any real
+        // window — but Windows keeps their process and window alive rather
+        // than destroying them when dismissed, it just cloaks them. Without
+        // this check they'd sit in _tracked (and in whatever workspace they
+        // were assigned to) forever, since nothing else ever removes a
+        // tracked window short of WM_DESTROY.
+        if (_windowManager.IsCloaked(hwnd))
+        {
+            _tracked.TryRemove(hwnd, out _);
+            return;
+        }
+
         var fresh = _windowManager.GetWindowState(hwnd);
         if (fresh is null) return;
 

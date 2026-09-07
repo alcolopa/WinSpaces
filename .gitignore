@@ -8,3 +8,5 @@ obj/
 .superpowers/
 docs/
 TestResults/
+publish/
+dist/

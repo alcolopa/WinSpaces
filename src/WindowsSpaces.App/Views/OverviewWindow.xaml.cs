@@ -218,6 +218,20 @@ public sealed partial class OverviewWindow : Window
         });
     }
 
+    /// <summary>
+    /// A DWM thumbnail is registered as a destination rect in screen space,
+    /// computed from the preview host's position at the time it was
+    /// registered/resized. Scrolling the card's window list moves that host
+    /// within the ScrollViewer's viewport without raising Loaded or
+    /// SizeChanged, so without this the thumbnail stays pinned at its old
+    /// position while the row underneath it scrolls away.
+    /// </summary>
+    private void OnWindowListScrollViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (_isClosed) return;
+        SchedulePreviewSync();
+    }
+
     private void OnPreviewHostLoaded(object sender, RoutedEventArgs e)
     {
         if (_isClosed || sender is not FrameworkElement host) return;

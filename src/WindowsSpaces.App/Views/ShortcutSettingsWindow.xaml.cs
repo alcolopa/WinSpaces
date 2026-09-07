@@ -24,7 +24,7 @@ public sealed partial class ShortcutSettingsWindow : Window
         var config = getConfig();
         _viewModel = new SettingsViewModel(config);
         _onSaved = onSaved;
-        BindingsList.ItemsSource = _viewModel.HotkeyItems;
+        BindingsList.ItemsSource = _viewModel.DisplayedHotkeyItems;
     }
 
     private void TryEnableMicaBackdrop()

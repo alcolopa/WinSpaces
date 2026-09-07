@@ -353,10 +353,81 @@ public sealed class AppHost : IDisposable
 
         if (saved is null) return defaults;
 
+        saved = RenumberWorkspaceIndexes(saved);
+
         var savedMonitorIds = saved.Monitors.Select(m => m.MonitorId).ToHashSet();
         var missingMonitors = defaults.Monitors.Where(m => !savedMonitorIds.Contains(m.MonitorId));
 
-        return saved with { Monitors = saved.Monitors.Concat(missingMonitors).ToList() };
+        // A hotkey action introduced in a later version (e.g. move-window-to-
+        // monitor) is entirely absent from an existing user's saved config —
+        // there is nothing there for them to have customized — so it is
+        // always safe to backfill the default binding for it. An action the
+        // user already has (any binding at all, including one they rebound
+        // away from the default key) is left untouched.
+        var savedActions = saved.Hotkeys.Select(h => h.Action).ToHashSet();
+        var missingHotkeys = defaults.Hotkeys.Where(h => !savedActions.Contains(h.Action));
+
+        return saved with
+        {
+            Monitors = saved.Monitors.Concat(missingMonitors).ToList(),
+            Hotkeys = saved.Hotkeys.Concat(missingHotkeys).ToList()
+        };
+    }
+
+    /// <summary>
+    /// Cleans up a monitor's <see cref="WorkspaceDefinition.Index"/>/Id
+    /// sequence back to a contiguous 1..N whenever it has drifted (repeated
+    /// add/delete cycles leave the survivors with an ever-growing Index even
+    /// though <see cref="WorkspaceManager.AddWorkspace"/> always computes the
+    /// next one from the current max — e.g. monitor 2 ending up with spaces
+    /// ":19"/":20" while monitor 1 is still ":1"/":2"). Safe to do purely at
+    /// load time: hotkeys resolve a space by its position in the list (see
+    /// <see cref="GetWorkspaceIdAt"/> in WorkspaceManager), never by the raw
+    /// id, so nothing observable changes except the numbers in the config
+    /// file and, for a workspace profile snapshot, the ids it references.
+    /// </summary>
+    private static AppConfiguration RenumberWorkspaceIndexes(AppConfiguration config)
+    {
+        var idMap = new Dictionary<string, string>();
+        var renumberedMonitors = new List<MonitorWorkspaceConfig>();
+        var changed = false;
+
+        foreach (var monitor in config.Monitors)
+        {
+            var ordered = monitor.Workspaces;
+            var isContiguous = ordered.Select((w, i) => w.Index == i + 1).All(isCorrect => isCorrect);
+            if (isContiguous)
+            {
+                renumberedMonitors.Add(monitor);
+                continue;
+            }
+
+            changed = true;
+            var newWorkspaces = new List<WorkspaceDefinition>();
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var old = ordered[i];
+                var newId = $"{monitor.MonitorId}:{i + 1}";
+                idMap[old.Id] = newId;
+                newWorkspaces.Add(old with { Id = newId, Index = i + 1 });
+            }
+            renumberedMonitors.Add(monitor with { Workspaces = newWorkspaces });
+        }
+
+        if (!changed) return config;
+
+        var renumberedProfiles = config.ActiveProfiles.Select(p => p with
+        {
+            ActiveWorkspaceByMonitor = p.ActiveWorkspaceByMonitor.ToDictionary(
+                kv => kv.Key,
+                kv => idMap.GetValueOrDefault(kv.Value, kv.Value)),
+            Windows = p.Windows?.Select(w => w with
+            {
+                WorkspaceId = idMap.GetValueOrDefault(w.WorkspaceId, w.WorkspaceId)
+            }).ToList()
+        }).ToList();
+
+        return config with { Monitors = renumberedMonitors, Profiles = renumberedProfiles };
     }
 
     /// <summary>
@@ -581,6 +652,8 @@ public sealed class AppHost : IDisposable
                 HotkeyAction.MoveToPreviousWorkspace => () => MoveActiveWindowRelative(-1),
                 HotkeyAction.CreateWorkspace => CreateWorkspaceOnCurrentMonitor,
                 HotkeyAction.CloseWorkspace => CloseWorkspaceOnCurrentMonitor,
+                HotkeyAction.MoveToNextMonitor => () => MoveActiveWindowToMonitor(1),
+                HotkeyAction.MoveToPreviousMonitor => () => MoveActiveWindowToMonitor(-1),
                 _ => throw new InvalidOperationException($"Unhandled hotkey action {binding.Action}")
             };
 
@@ -670,6 +743,38 @@ public sealed class AppHost : IDisposable
         _workspaceManager.SwitchWorkspace(monitor.Id, targetId);
         _workspaceManager.ActivateWindow(foreground);
         ReportActiveWorkspace(monitor.Id);
+    }
+
+    /// <summary>
+    /// Sends the focused window to the next/previous monitor's currently
+    /// active space and follows it there — the cross-monitor counterpart of
+    /// <see cref="MoveActiveWindowRelative"/>. Monitors are cycled in
+    /// <see cref="IMonitorManager.GetMonitors"/> order, wrapping past either
+    /// end; a single-monitor system has nothing to move to.
+    /// </summary>
+    private void MoveActiveWindowToMonitor(int delta)
+    {
+        var foreground = _windowApi.GetForegroundWindow();
+        var currentMonitor = _monitorApi.GetMonitorForWindow(foreground);
+        if (currentMonitor is null) return;
+
+        var monitors = _monitorApi.GetMonitors();
+        if (monitors.Count < 2) return;
+
+        var currentIndex = monitors.ToList().FindIndex(m => m.Id == currentMonitor.Id);
+        if (currentIndex < 0) return;
+
+        var targetIndex = ((currentIndex + delta) % monitors.Count + monitors.Count) % monitors.Count;
+        var targetMonitor = monitors[targetIndex];
+        if (targetMonitor.Id == currentMonitor.Id) return;
+
+        var targetWorkspaceId = _workspaceManager.GetActiveWorkspace(targetMonitor.Id);
+        if (targetWorkspaceId is null) return;
+
+        if (!MoveWindowToMonitor(foreground, targetMonitor.Id, targetWorkspaceId, out _)) return;
+
+        _workspaceManager.ActivateWindow(foreground);
+        ReportActiveWorkspace(targetMonitor.Id);
     }
 
     private void CreateWorkspaceOnCurrentMonitor()

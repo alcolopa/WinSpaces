@@ -172,7 +172,8 @@
                                        VerticalAlignment="Center"/>
 
                             <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          ViewChanged="OnWindowListScrollViewChanged">
                                 <ItemsControl ItemsSource="{Binding Windows}"
                                               ItemTemplate="{StaticResource WindowTileTemplate}"/>
                             </ScrollViewer>

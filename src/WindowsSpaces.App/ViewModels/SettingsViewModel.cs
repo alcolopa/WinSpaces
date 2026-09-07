@@ -15,6 +15,18 @@ public sealed class SettingsViewModel : ViewModelBase
     public ObservableCollection<RuleItemViewModel> RuleItems { get; }
     public ObservableCollection<WorkspaceProfile> ProfileItems { get; }
 
+    /// <summary>
+    /// What the Shortcuts page actually shows: every non-per-space binding,
+    /// plus exactly one row per per-space action (Switch/Move to Space)
+    /// standing in for the whole 1-N family, instead of one row per space
+    /// number. <see cref="HotkeyItems"/> stays the full flat list — it's
+    /// still what gets persisted, registered, and conflict-checked; this is
+    /// purely what the user edits.
+    /// </summary>
+    public ObservableCollection<HotkeyItemViewModel> DisplayedHotkeyItems { get; } = new();
+
+    private static readonly HotkeyAction[] PerSpaceActions = { HotkeyAction.SwitchWorkspace, HotkeyAction.MoveToWorkspace };
+
     public bool EnableTransitions
     {
         get => _enableTransitions;
@@ -57,6 +69,39 @@ public sealed class SettingsViewModel : ViewModelBase
 
         WatchForChanges();
         ValidateHotkeys();
+        RebuildDisplayedHotkeyItems();
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="DisplayedHotkeyItems"/> from <see cref="HotkeyItems"/>.
+    /// For each per-space action, the lowest-numbered space's row is flagged
+    /// as the group representative (editing it is what the Shortcuts page
+    /// exposes) and is the only one of that action shown; every other
+    /// row — including its own siblings, which stay in HotkeyItems for
+    /// persistence — is filtered out of the display.
+    /// </summary>
+    private void RebuildDisplayedHotkeyItems()
+    {
+        foreach (var item in HotkeyItems) item.RepresentsDigitGroup = false;
+
+        var representatives = PerSpaceActions.ToDictionary(
+            action => action,
+            action => HotkeyItems.Where(h => h.Action == action).OrderBy(h => h.WorkspaceIndex).FirstOrDefault());
+
+        foreach (var rep in representatives.Values)
+        {
+            if (rep is not null) rep.RepresentsDigitGroup = true;
+        }
+
+        DisplayedHotkeyItems.Clear();
+        foreach (var item in HotkeyItems)
+        {
+            var isPerSpace = PerSpaceActions.Contains(item.Action);
+            if (!isPerSpace || item.RepresentsDigitGroup)
+            {
+                DisplayedHotkeyItems.Add(item);
+            }
+        }
     }
 
     /// <summary>
@@ -99,8 +144,18 @@ public sealed class SettingsViewModel : ViewModelBase
 
             if (e.PropertyName is nameof(HotkeyItemViewModel.IsEditing))
             {
-                // Closing the editor is the commit point for a shortcut.
-                if (!item.IsEditing) RaiseChanged();
+                // Closing the editor is the commit point for a shortcut —
+                // and, for the group-representative row, also the point its
+                // new combo mirrors onto every hidden sibling sharing its
+                // action (each keeps its own digit key; only the combo is
+                // shared). Not propagated on every checkbox toggle mid-edit,
+                // or a half-chosen combination would apply to every space
+                // number for as long as it took to finish editing.
+                if (!item.IsEditing)
+                {
+                    PropagateGroupModifiers(item);
+                    RaiseChanged();
+                }
                 return;
             }
 
@@ -110,12 +165,32 @@ public sealed class SettingsViewModel : ViewModelBase
                 return;
             }
 
+            // A change made outside the editor (e.g. Rebind()) has no
+            // closing-the-editor moment to propagate at, so do it inline —
+            // but only then: while item.IsEditing is true this same
+            // PropertyChanged fires on every checkbox toggle, and the
+            // IsEditing-closing branch above is what actually commits it.
+            if (!item.IsEditing && item.RepresentsDigitGroup && e.PropertyName == nameof(HotkeyItemViewModel.Modifiers))
+            {
+                PropagateGroupModifiers(item);
+            }
+
             ValidateHotkeys();
 
             // A row edited outside the editor toggle (the reset-to-defaults
             // button rewrites every row) still has to reach the host.
             if (!item.IsEditing) RaiseChanged();
         };
+    }
+
+    private void PropagateGroupModifiers(HotkeyItemViewModel representative)
+    {
+        if (!representative.RepresentsDigitGroup) return;
+
+        foreach (var sibling in HotkeyItems.Where(h => h.Action == representative.Action && h != representative))
+        {
+            sibling.Modifiers = representative.Modifiers;
+        }
     }
 
     // Backward-compatibility for existing tests & callers
@@ -146,13 +221,18 @@ public sealed class SettingsViewModel : ViewModelBase
         // next/previous and the overview are how a space is reached.
         if (index < 1 || index > AppConfiguration.MaxDirectSwitchWorkspaces) return;
 
-        // Ctrl+Alt+N and Ctrl+Alt+Shift+N, matching the shipped defaults.
-        // Plain Ctrl+N would be registered system-wide and take tab switching
-        // away from every browser and editor on the machine.
+        // Ctrl+Alt+N and Ctrl+Alt+Shift+N, matching the shipped defaults —
+        // unless the user already customized the combo via the group row,
+        // in which case a new space number picks up that same combo rather
+        // than reverting to the default. Plain Ctrl+N would be registered
+        // system-wide and take tab switching away from every browser and
+        // editor on the machine.
         if (!HotkeyItems.Any(h => h.Action == HotkeyAction.SwitchWorkspace && h.WorkspaceIndex == index))
         {
             var key = 0x30 + index;
-            var binding = new HotkeyBinding(HotkeyAction.SwitchWorkspace, index, ModifierKeys.Control | ModifierKeys.Alt, key);
+            var modifiers = HotkeyItems.FirstOrDefault(h => h.Action == HotkeyAction.SwitchWorkspace)?.Modifiers
+                             ?? ModifierKeys.Control | ModifierKeys.Alt;
+            var binding = new HotkeyBinding(HotkeyAction.SwitchWorkspace, index, modifiers, key);
             var item = new HotkeyItemViewModel(binding);
             SubscribeHotkey(item);
             HotkeyItems.Add(item);
@@ -161,13 +241,16 @@ public sealed class SettingsViewModel : ViewModelBase
         if (!HotkeyItems.Any(h => h.Action == HotkeyAction.MoveToWorkspace && h.WorkspaceIndex == index))
         {
             var key = 0x30 + index;
-            var binding = new HotkeyBinding(HotkeyAction.MoveToWorkspace, index, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift, key);
+            var modifiers = HotkeyItems.FirstOrDefault(h => h.Action == HotkeyAction.MoveToWorkspace)?.Modifiers
+                             ?? ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift;
+            var binding = new HotkeyBinding(HotkeyAction.MoveToWorkspace, index, modifiers, key);
             var item = new HotkeyItemViewModel(binding);
             SubscribeHotkey(item);
             HotkeyItems.Add(item);
         }
 
         ValidateHotkeys();
+        RebuildDisplayedHotkeyItems();
     }
 
     public void RemoveWorkspace(string monitorId, string workspaceId)
@@ -227,6 +310,7 @@ public sealed class SettingsViewModel : ViewModelBase
         }
 
         ValidateHotkeys();
+        RebuildDisplayedHotkeyItems();
     }
 
     public void ValidateHotkeys()
