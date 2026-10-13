@@ -63,6 +63,17 @@ public sealed partial class SettingsWindow : Window
             RulesItemsControl.ItemsSource = _viewModel.RuleItems;
             ProfilesItemsControl.ItemsSource = _viewModel.ProfileItems;
 
+            StartWithWindowsToggle.IsOn = Helpers.StartupRegistration.IsEnabled();
+            StartWithWindowsToggle.Toggled += (s, e) =>
+            {
+                var wanted = StartWithWindowsToggle.IsOn;
+                if (!Helpers.StartupRegistration.SetEnabled(wanted))
+                {
+                    // Registry write failed: show the real state, not the wish.
+                    StartWithWindowsToggle.IsOn = Helpers.StartupRegistration.IsEnabled();
+                }
+            };
+
             EnableTransitionsToggle.IsOn = _viewModel.EnableTransitions;
             EnableTransitionsToggle.Toggled += (s, e) => _viewModel.EnableTransitions = EnableTransitionsToggle.IsOn;
 

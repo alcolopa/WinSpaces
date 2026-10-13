@@ -444,6 +444,26 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Startup Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="Start with Windows" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="Launch Windows Spaces automatically when you sign in."
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="StartWithWindowsToggle" VerticalAlignment="Center" Margin="0" OffContent="" OnContent=""/>
+                            </Grid>
+                        </Border>
+
                         <!-- Transitions Card -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
