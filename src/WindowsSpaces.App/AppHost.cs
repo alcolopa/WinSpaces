@@ -847,7 +847,14 @@ public sealed class AppHost : IDisposable
         newWorkspaceId = null;
 
         var monitorConfig = _config.Monitors.FirstOrDefault(m => m.MonitorId == monitorId);
-        var existing = monitorConfig?.Workspaces ?? Array.Empty<WorkspaceDefinition>();
+        if (monitorConfig is null)
+        {
+            // Refusing matters: proceeding would persist a phantom monitor
+            // entry for any typo'd id.
+            error = $"Monitor '{monitorId}' is not configured.";
+            return false;
+        }
+        var existing = monitorConfig.Workspaces;
 
         if (existing.Count >= AppConfiguration.MaxWorkspacesPerMonitor)
         {

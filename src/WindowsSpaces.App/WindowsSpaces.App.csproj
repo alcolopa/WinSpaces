@@ -44,6 +44,20 @@
     <ProjectReference Include="..\WindowsSpaces.Persistence\WindowsSpaces.Persistence.csproj" />
   </ItemGroup>
 
+  <!-- `dotnet publish` does not pick up the PRI index or the compiled XAML
+       (.xbf) that the build puts next to the exe, so a published/installed
+       app crashed with XamlParseException the first time any window opened.
+       Add them to the publish set explicitly. -->
+  <Target Name="IncludeXamlResourcesInPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_XamlPublishFile Include="$(OutDir)resources.pri;$(OutDir)**\*.xbf" />
+      <ResolvedFileToPublish Include="@(_XamlPublishFile)">
+        <RelativePath>$([MSBuild]::MakeRelative('$(OutDir)', '%(_XamlPublishFile.FullPath)'))</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

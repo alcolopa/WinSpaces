@@ -6,5 +6,8 @@
 - Settings: "Start with Windows" toggle (per-user Run key).
 - README: overview is called "Spaces Overview".
 
+- Fix: published/installed builds crashed opening any window (XamlParseException) because `dotnet publish` omitted `resources.pri` and the `.xbf` files.
+- CLI: unknown monitor/space/window ids now fail with an error (they reported success); `add-space` no longer writes phantom monitors into config.json; `--json` embeds `Data` as real JSON and exits non-zero on failure.
+
 ## Earlier
 Phases 0-4 of the spec: core engine, tray/settings/rules/profiles/diagnostics UI, Spaces Overview with thumbnails and drag/drop, slide transitions, CLI + IPC, config sync, installer.

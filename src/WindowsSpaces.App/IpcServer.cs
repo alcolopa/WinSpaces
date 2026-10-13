@@ -98,6 +98,27 @@ public sealed class IpcServer : IDisposable
         return await tcs.Task;
     }
 
+    /// <summary>
+    /// Strict check for externally supplied ids: the CLI used to report
+    /// success for a typo'd monitor or space while doing nothing.
+    /// </summary>
+    private bool TryValidateWorkspace(string monitorId, string workspaceId, out string? error)
+    {
+        var spaces = _appHost.WorkspaceManager.GetWorkspaces(monitorId);
+        if (spaces.Count == 0)
+        {
+            error = $"Unknown monitor '{monitorId}'. Run 'status' to list monitor ids.";
+            return false;
+        }
+        if (!spaces.Any(w => w.Id == workspaceId))
+        {
+            error = $"Monitor '{monitorId}' has no space '{workspaceId}'.";
+            return false;
+        }
+        error = null;
+        return true;
+    }
+
     private IpcResponse ExecuteCommand(IpcRequest request)
     {
         switch (request.Command.ToLowerInvariant())
@@ -136,6 +157,10 @@ public sealed class IpcServer : IDisposable
                     !request.Arguments.TryGetValue("WorkspaceId", out var workspaceId))
                 {
                     return new IpcResponse(false, "Missing MonitorId or WorkspaceId.", null);
+                }
+                if (!TryValidateWorkspace(monitorId, workspaceId, out var switchError))
+                {
+                    return new IpcResponse(false, switchError, null);
                 }
                 _appHost.WorkspaceManager.SwitchWorkspace(monitorId, workspaceId);
                 return new IpcResponse(true, null, $"Switched monitor {monitorId} to workspace {workspaceId}.");
@@ -224,6 +249,15 @@ public sealed class IpcServer : IDisposable
                 if (!nint.TryParse(hwndStr, out var hwnd))
                 {
                     return new IpcResponse(false, $"Invalid HWND '{hwndStr}'.", null);
+                }
+                if (!_appHost.WorkspaceManager.GetTrackedWindowMonitor(hwnd, out var windowMonitorId))
+                {
+                    return new IpcResponse(false, $"Window {hwnd} is not tracked.", null);
+                }
+                if (windowMonitorId is not null &&
+                    !TryValidateWorkspace(windowMonitorId, targetWorkspaceId, out var moveError))
+                {
+                    return new IpcResponse(false, moveError, null);
                 }
                 _appHost.WorkspaceManager.AssignWindow(hwnd, targetWorkspaceId);
                 return new IpcResponse(true, null, $"Moved window {hwnd} to workspace {targetWorkspaceId}.");

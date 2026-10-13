@@ -115,7 +115,21 @@ internal static class Program
 
         if (jsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true }));
+            // Data is itself JSON for some commands (status, rules); embed it
+            // as real JSON instead of an escaped string-inside-a-string.
+            object? data = response.Data;
+            if (!string.IsNullOrEmpty(response.Data))
+            {
+                try { data = JsonSerializer.Deserialize<JsonElement>(response.Data); }
+                catch (JsonException) { /* plain text message */ }
+            }
+
+            Console.WriteLine(JsonSerializer.Serialize(
+                new { response.Success, response.Error, Data = data },
+                new JsonSerializerOptions { WriteIndented = true }));
+
+            // Scripts rely on the exit code; --json must not mask failures.
+            if (!response.Success) Environment.Exit(1);
         }
         else
         {

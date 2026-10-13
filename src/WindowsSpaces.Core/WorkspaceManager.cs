@@ -298,6 +298,18 @@ public sealed class WorkspaceManager
         SwitchWorkspace(monitorId, target, delta >= 0 ? TransitionDirection.Next : TransitionDirection.Previous);
     }
 
+    /// <summary>Whether the window is tracked; <paramref name="monitorId"/> is the monitor it currently sits on, if known.</summary>
+    public bool GetTrackedWindowMonitor(nint hwnd, out string? monitorId)
+    {
+        if (_tracker.TrackedWindows.TryGetValue(hwnd, out var state))
+        {
+            monitorId = state.MonitorId;
+            return true;
+        }
+        monitorId = null;
+        return false;
+    }
+
     /// <summary>
     /// Whether the monitor can currently show this space. A monitor with no
     /// configured list (unit tests, a monitor seen before its config loads)
