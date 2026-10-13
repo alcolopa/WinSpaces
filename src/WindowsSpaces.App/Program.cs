@@ -88,9 +88,20 @@ internal static class Program
     private static App? _app;
     private static WndProc? _wndProcDelegate;
 
+    // Held for the process lifetime; a second copy would fight the first for
+    // hotkeys and the IPC pipe, so it exits instead.
+    private static System.Threading.Mutex? _singleInstanceMutex;
+
     [STAThread]
     private static void Main()
     {
+        _singleInstanceMutex = new System.Threading.Mutex(true, @"Local\WindowsSpaces_SingleInstance", out bool isFirstInstance);
+        if (!isFirstInstance)
+        {
+            CrashLogger.Log("Another instance is already running; exiting.");
+            return;
+        }
+
         try
         {
             CrashLogger.Log("Program.Main started");

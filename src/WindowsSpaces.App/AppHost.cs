@@ -93,6 +93,16 @@ public sealed class AppHost : IDisposable
     public void Start(nint messageWindowHwnd)
     {
         _messageWindowHwnd = messageWindowHwnd;
+
+        // A previous run killed mid-session leaves its hidden windows hidden;
+        // bring them back before tracking so they count as ordinary windows.
+        try
+        {
+            var recovered = _windowApi.RecoverHiddenWindows();
+            if (recovered > 0) CrashLogger.Log($"Recovered {recovered} window(s) hidden by a previous session.");
+        }
+        catch (Exception ex) { CrashLogger.Log("Hidden-window recovery failed", ex); }
+
         _tracker.Rescan();
         _eventSource.Start();
 

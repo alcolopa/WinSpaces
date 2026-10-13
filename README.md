@@ -139,7 +139,7 @@ has focus — and fully rebindable from the tray's **Shortcuts** window.
 | `Ctrl+1` / `Ctrl+2`         | Switch the focused monitor to Space 1 / 2 |
 | `Ctrl+Shift+1` / `+2`       | Move the focused window to Space 1 / 2    |
 | `Ctrl+Shift+Esc`            | Emergency "Show All Windows" recovery     |
-| `Ctrl+Up`                   | Show workspace overview (Mission Control) |
+| `Ctrl+Up`                   | Show workspace overview (Spaces Overview) |
 
 ## Configuration
 

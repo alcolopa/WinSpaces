@@ -6,6 +6,36 @@ namespace WindowsSpaces.Platform.Win32;
 
 public sealed class WindowApi : IWindowManager
 {
+    private readonly HiddenWindowJournal _journal;
+
+    public WindowApi() : this(new HiddenWindowJournal(HiddenWindowJournal.DefaultPath)) { }
+
+    public WindowApi(HiddenWindowJournal journal) => _journal = journal;
+
+    /// <summary>
+    /// Shows windows a previous run hid and never got to restore (it was
+    /// killed or lost power). Call once at startup, before tracking begins.
+    /// Returns how many windows were shown.
+    /// </summary>
+    public int RecoverHiddenWindows()
+    {
+        var recovered = 0;
+        foreach (var entry in _journal.TakeStaleEntries())
+        {
+            var hwnd = (nint)entry.Hwnd;
+            if (!IsWindow(hwnd) || IsWindowVisible(hwnd)) continue;
+
+            GetWindowThreadProcessId(hwnd, out var pid);
+            var cls = new System.Text.StringBuilder(256);
+            GetClassName(hwnd, cls, cls.Capacity);
+            if (pid != entry.ProcessId || cls.ToString() != entry.WindowClass) continue;
+
+            Show(hwnd);
+            recovered++;
+        }
+        return recovered;
+    }
+
     public IReadOnlyList<nint> EnumerateTopLevelWindows()
     {
         var result = new List<nint>();
@@ -231,11 +261,18 @@ public sealed class WindowApi : IWindowManager
         // moment the window is hidden. Left disabled while the window is out
         // of view; Show turns it back on.
         DwmApi.SetTransitionsDisabled(hwnd, true);
+        // Journal first: if we die between the two lines the window is
+        // recorded and recoverable; the reverse order could lose it.
+        GetWindowThreadProcessId(hwnd, out var pid);
+        var cls = new System.Text.StringBuilder(256);
+        GetClassName(hwnd, cls, cls.Capacity);
+        _journal.Add(new HiddenWindowJournal.Entry(hwnd, pid, cls.ToString()));
         ShowWindow(hwnd, SW_HIDE);
     }
 
     public void Show(nint hwnd)
     {
+        _journal.Remove(hwnd);
         var placement = new WINDOWPLACEMENT { length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
         GetWindowPlacement(hwnd, ref placement);
 
