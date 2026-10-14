@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -51,6 +53,7 @@ public sealed partial class OverviewWindow : Window
     private readonly System.Drawing.Rectangle _monitorBounds;
 
     private readonly OverviewDragCoordinator _coordinator;
+    private readonly Func<nint, Platform.Win32.WindowPicture?> _snapshotProvider;
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(nint hWnd, int nIndex);
@@ -88,11 +91,13 @@ public sealed partial class OverviewWindow : Window
         AppHost host,
         WorkspaceManager workspaceManager,
         WindowTracker windowTracker,
-        OverviewDragCoordinator coordinator)
+        OverviewDragCoordinator coordinator,
+        bool prewarm = false)
     {
         InitializeComponent();
 
         _monitorBounds = monitor.Bounds;
+        _snapshotProvider = host.GetWindowPicture;
         _coordinator = coordinator;
         _coordinator.Register(this);
 
@@ -120,11 +125,16 @@ public sealed partial class OverviewWindow : Window
         _viewModel.Refreshed += OnViewModelRefreshed;
 
         // Borderless pop-up covering exactly this monitor.
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        var style = GetWindowLong(hwnd, GWL_STYLE);
-        SetWindowLong(hwnd, GWL_STYLE, (style & ~WS_CAPTION & ~WS_THICKFRAME) | WS_POPUP);
-        SetWindowPos(hwnd, HWND_TOPMOST, monitor.Bounds.X, monitor.Bounds.Y, monitor.Bounds.Width, monitor.Bounds.Height,
-            SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        // A prewarm instance is built only to pay the one-time XAML/JIT cost
+        // and is closed unseen, so it is never shown.
+        if (!prewarm)
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var style = GetWindowLong(hwnd, GWL_STYLE);
+            SetWindowLong(hwnd, GWL_STYLE, (style & ~WS_CAPTION & ~WS_THICKFRAME) | WS_POPUP);
+            SetWindowPos(hwnd, HWND_TOPMOST, monitor.Bounds.X, monitor.Bounds.Y, monitor.Bounds.Width, monitor.Bounds.Height,
+                SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        }
 
         RootGrid.Loaded += OnRootLoaded;
         RootGrid.PointerPressed += OnRootPointerPressed;
@@ -247,9 +257,43 @@ public sealed partial class OverviewWindow : Window
         // Only a window in the space that is actually on screen has a
         // composition surface for DWM to mirror; the rest are SW_HIDE'd and
         // would register a thumbnail that renders nothing.
+        // The saved picture goes in first, for every tile: it is the preview
+        // for windows in other spaces, and for on-screen ones it is what shows
+        // if the live mirror can't (a minimized window has nothing to mirror).
+        // The live thumbnail, when there is one, composites on top of it.
+        ShowSnapshot(window, host);
+
         if (!window.CanPreview) return;
 
         RegisterThumbnail(window.Hwnd, host);
+    }
+
+    /// <summary>
+    /// Fills the preview slot with the last picture taken of a hidden window.
+    /// Without one the letter mark underneath stays visible.
+    /// </summary>
+    private void ShowSnapshot(WindowOverviewViewModel window, FrameworkElement host)
+    {
+        if (host is not Border border) return;
+
+        var snapshot = _snapshotProvider(window.Hwnd);
+        if (snapshot is null) return;
+
+        try
+        {
+            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(snapshot.Width, snapshot.Height);
+            using (var stream = bitmap.PixelBuffer.AsStream())
+            {
+                stream.Write(snapshot.Bgra, 0, snapshot.Bgra.Length);
+            }
+
+            border.CornerRadius = new CornerRadius(6);
+            border.Child = new Image { Source = bitmap, Stretch = Stretch.UniformToFill };
+        }
+        catch
+        {
+            // A preview is decoration; the letter mark is the fallback.
+        }
     }
 
     private void OnPreviewHostUnloaded(object sender, RoutedEventArgs e)
@@ -670,11 +714,13 @@ public sealed partial class OverviewWindow : Window
         if (session.Kind == OverviewDragKind.Window)
         {
             SetHoveredWorkspace(FindWorkspaceAt(local));
+            SetAddButtonDropHighlight(IsOverAddButton(local) && _viewModel.CanAddWorkspace);
             SetPaneDropTarget(null);
         }
         else
         {
             SetHoveredWorkspace(null);
+            SetAddButtonDropHighlight(false);
             SetPaneDropTarget(ReferenceEquals(session.SourcePane, this)
                 ? null
                 : $"Move {session.GhostText} to this monitor");
@@ -687,7 +733,16 @@ public sealed partial class OverviewWindow : Window
 
         DragGhost.Visibility = Visibility.Collapsed;
         SetHoveredWorkspace(null);
+        SetAddButtonDropHighlight(false);
         SetPaneDropTarget(null);
+    }
+
+    private void SetAddButtonDropHighlight(bool on)
+    {
+        AddSpaceButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            on ? Windows.UI.Color.FromArgb(0x4D, 0x4D, 0x9F, 0xEF) : Windows.UI.Color.FromArgb(0xFF, 0x15, 0x16, 0x1D));
+        AddSpaceButton.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            on ? Windows.UI.Color.FromArgb(0xFF, 0x4D, 0x9F, 0xEF) : Windows.UI.Color.FromArgb(0xFF, 0x2B, 0x2C, 0x38));
     }
 
     /// <summary>Re-reads live state. Called on every pane after a drop, since a cross-monitor move changes two of them.</summary>
@@ -706,8 +761,16 @@ public sealed partial class OverviewWindow : Window
     {
         if (_isClosed) return null;
 
-        var card = FindWorkspaceAt(ToLocalPoint(screenX, screenY));
+        var local = ToLocalPoint(screenX, screenY);
+        var card = FindWorkspaceAt(local);
         if (card is not null) return card.WorkspaceId;
+
+        // Dropped on "New space": create the space now and land the window in it.
+        if (IsOverAddButton(local) && _viewModel.CanAddWorkspace && _viewModel.AddWorkspace())
+        {
+            var created = _viewModel.SelectedWorkspace;
+            if (created is not null) return created.WorkspaceId;
+        }
 
         var active = _viewModel.Workspaces.FirstOrDefault(w => w.IsActive) ?? _viewModel.Workspaces.FirstOrDefault();
         return active?.WorkspaceId;
@@ -790,6 +853,16 @@ public sealed partial class OverviewWindow : Window
         }
 
         RequestClose();
+    }
+
+    private bool IsOverAddButton(Point position)
+    {
+        if (AddSpaceButton.Visibility != Visibility.Visible) return false;
+
+        var bounds = AddSpaceButton.TransformToVisual(RootGrid)
+            .TransformBounds(new Rect(0, 0, AddSpaceButton.RenderSize.Width, AddSpaceButton.RenderSize.Height));
+
+        return bounds.Contains(position);
     }
 
     private WorkspaceOverviewViewModel? FindWorkspaceAt(Point position)

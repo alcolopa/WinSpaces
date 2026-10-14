@@ -23,17 +23,58 @@ public sealed class WindowApi : IWindowManager
         foreach (var entry in _journal.TakeStaleEntries())
         {
             var hwnd = (nint)entry.Hwnd;
-            if (!IsWindow(hwnd) || IsWindowVisible(hwnd)) continue;
+            if (!IsWindow(hwnd)) continue;
 
             GetWindowThreadProcessId(hwnd, out var pid);
             var cls = new System.Text.StringBuilder(256);
             GetClassName(hwnd, cls, cls.Capacity);
             if (pid != entry.ProcessId || cls.ToString() != entry.WindowClass) continue;
 
+            // Parked windows are still visible, just off-screen: put them back
+            // where they were.
+            if (entry.Parked is { } p)
+            {
+                SetWindowPos(hwnd, 0, p.Left, p.Top, p.Width, p.Height, SWP_NOACTIVATE);
+                recovered++;
+                continue;
+            }
+
+            if (IsWindowVisible(hwnd)) continue;
+
             Show(hwnd);
             recovered++;
         }
-        return recovered;
+
+        return recovered + RecoverStrandedWindows();
+    }
+
+    /// <summary>
+    /// Pulls back real windows left sitting in the parking area with no journal
+    /// entry to say where they belong (a crash before the journal was written,
+    /// or a journal lost with the machine). A fresh process would otherwise
+    /// ignore them as helper surfaces and they would stay off-screen for good.
+    /// Helper strips are tiny; anything window-sized is moved onto the screen.
+    /// </summary>
+    private int RecoverStrandedWindows()
+    {
+        var moved = 0;
+
+        bool Callback(nint hWnd, nint lParam)
+        {
+            if (!IsManagedTopLevelWindow(hWnd, includeParkArea: true) || IsIconic(hWnd) || _parked.ContainsKey(hWnd)) return true;
+            if (!GetWindowRect(hWnd, out var rect) || rect.Left > -16000) return true;
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+            if (width < 300 || height < 200) return true;
+
+            SetWindowPos(hWnd, 0, 100, 100, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+            moved++;
+            return true;
+        }
+
+        EnumWindows(Callback, 0);
+        return moved;
     }
 
     public IReadOnlyList<nint> EnumerateTopLevelWindows()
@@ -93,7 +134,24 @@ public sealed class WindowApi : IWindowManager
         "StartMenuExperienceHost",
         "ShellExperienceHost",
         "TextInputHost",
-        "ShellHost"
+        "ShellHost",
+        "LockApp" // the lock screen: lives on as a background process after unlocking
+    };
+
+    /// <summary>
+    /// Exact titles of helper windows that apps create alongside their real
+    /// window and that are never something the user opened.
+    /// <list type="bullet">
+    /// <item>"Chrome Legacy Window" — Chromium's internal window-management helper.</item>
+    /// <item>"ReunionCaptionControlsWindow" — the Windows App SDK (formerly
+    /// "Project Reunion") window that draws the minimize/maximize/close buttons
+    /// of a custom title bar; WhatsApp and other WinUI 3 apps create one.</item>
+    /// </list>
+    /// </summary>
+    private static readonly HashSet<string> HelperWindowTitles = new(StringComparer.Ordinal)
+    {
+        "Chrome Legacy Window",
+        "ReunionCaptionControlsWindow"
     };
 
     public bool IsManageable(nint hwnd) => IsManagedTopLevelWindow(hwnd);
@@ -113,7 +171,7 @@ public sealed class WindowApi : IWindowManager
     /// </summary>
     private static readonly uint CurrentProcessId = (uint)Environment.ProcessId;
 
-    private static bool IsManagedTopLevelWindow(nint hWnd)
+    private static bool IsManagedTopLevelWindow(nint hWnd, bool includeParkArea = false)
     {
         if (!IsWindowVisible(hWnd)) return false;
 
@@ -159,13 +217,47 @@ public sealed class WindowApi : IWindowManager
             return false;
         }
 
+        // explorer.exe also hosts a pile of internal surfaces that are visible
+        // top-level windows but never something the user opened: XAML-island
+        // hosts ("DesktopWindowXamlSource"), "Details Pane", file-dialog
+        // fragments, and so on. The only explorer window a user actually
+        // opens is a File Explorer window (CabinetWClass), so allow only that.
+        if (string.Equals(processName, "explorer", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(windowClass, "CabinetWClass", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Non-activating windows (popups, flyouts, helper surfaces) can't be
+        // focused by the user, so they aren't windows the user "opened".
+        if (((uint)GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_NOACTIVATE) != 0)
+        {
+            return false;
+        }
+
+        // Helper surfaces that belong to a parked window report positions in
+        // the parking area (the parent's offset carries over). They are not
+        // windows the user opened; only ones this process parked itself count.
+        if (!includeParkArea && !IsIconic(hWnd) && !_parked.ContainsKey(hWnd) && GetWindowRect(hWnd, out var parkedArea) && parkedArea.Left <= -16000)
+        {
+            return false;
+        }
+
+        // Degenerate-size windows are invisible helpers, not user content.
+        // Minimized windows report a parked off-screen rect, so skip them.
+        if (!IsIconic(hWnd) && GetWindowRect(hWnd, out var rect) &&
+            (rect.Right - rect.Left < 32 || rect.Bottom - rect.Top < 32))
+        {
+            return false;
+        }
+
         // Chromium (Edge/Chrome/any Chromium-based app) creates a hidden
         // internal helper window with this exact literal title as part of
         // its own window management — never real user-facing content, and
         // Windows still reports it visible/uncloaked.
         var titleBuilder = new System.Text.StringBuilder(256);
         if (GetWindowText(hWnd, titleBuilder, titleBuilder.Capacity) > 0 &&
-            titleBuilder.ToString() == "Chrome Legacy Window")
+            HelperWindowTitles.Contains(titleBuilder.ToString()))
         {
             return false;
         }
@@ -255,8 +347,61 @@ public sealed class WindowApi : IWindowManager
         };
     }
 
+    /// <summary>Last pictures of windows, so the overview can preview windows that are currently hidden.</summary>
+    public WindowSnapshotCache Snapshots { get; } = new();
+
+    /// <summary>
+    /// When set, <see cref="Hide"/> parks a window far off-screen instead of
+    /// SW_HIDE-ing it. A hidden window loses its composition surface and has
+    /// to repaint from scratch when shown, which is what makes switching to a
+    /// heavy window stall; a parked one stays a live, painted window, so it
+    /// can be mirrored and brought back instantly.
+    /// </summary>
+    public bool KeepWindowsRendered { get; set; }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, RECT> _parked = new();
+
+    /// <summary>Far enough left to be on no monitor, short of the 16-bit coordinate limit some apps assume.</summary>
+    private const int ParkX = -24000;
+
+    public bool IsParked(nint hwnd) => _parked.ContainsKey(hwnd);
+
+    private const uint RDW_INVALIDATE = 0x0001;
+    private const uint RDW_ALLCHILDREN = 0x0080;
+    private const uint RDW_FRAME = 0x0400;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool RedrawWindow(nint hWnd, nint lprcUpdate, nint hrgnUpdate, uint flags);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsHungAppWindow(nint hWnd);
+
     public void Hide(nint hwnd)
     {
+        // Once hidden there is nothing left to capture. Normally the periodic
+        // refresh has a recent picture already; this covers a window that
+        // was never captured (new, or hidden within seconds of appearing).
+        Snapshots.CaptureIfMissing(hwnd);
+
+        if (_parked.ContainsKey(hwnd)) return;
+
+        // Minimized windows have nothing to keep rendered; they take the
+        // ordinary hide below.
+        if (KeepWindowsRendered && !IsIconic(hwnd) && GetWindowRect(hwnd, out var rect))
+        {
+            // Journal first, as with a hide: a crash between the two lines
+            // must leave a window that can be put back.
+            GetWindowThreadProcessId(hwnd, out var parkedPid);
+            var parkedClass = new System.Text.StringBuilder(256);
+            GetClassName(hwnd, parkedClass, parkedClass.Capacity);
+            _journal.Add(new HiddenWindowJournal.Entry(hwnd, parkedPid, parkedClass.ToString(),
+                new HiddenWindowJournal.ParkedRect(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top)));
+            _parked[hwnd] = rect;
+            SetWindowPos(hwnd, 0, ParkX, rect.Top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            return;
+        }
+
+
         // Set before the hide, not after: DWM decides whether to fade at the
         // moment the window is hidden. Left disabled while the window is out
         // of view; Show turns it back on.
@@ -273,6 +418,26 @@ public sealed class WindowApi : IWindowManager
     public void Show(nint hwnd)
     {
         _journal.Remove(hwnd);
+
+        // A parked window never stopped being visible: put it back where it
+        // was and raise it (HWND_TOP, no activation). No ShowWindow, no
+        // recompose kick — it never lost its surface.
+        if (_parked.TryRemove(hwnd, out var parkedRect))
+        {
+            // Position and size both: the switch moves the window to its saved
+            // normal bounds first, which for a maximized window is the wrong size,
+            // and with no ShowWindow to re-maximize it that size would stick.
+            SetWindowPos(hwnd, 0, parkedRect.Left, parkedRect.Top,
+                parkedRect.Right - parkedRect.Left, parkedRect.Bottom - parkedRect.Top, SWP_NOACTIVATE);
+
+            // Chromium-based apps stop painting while they are off-screen and
+            // come back a pane at a time. Invalidating the whole tree tells every
+            // child surface to redraw now rather than whenever it gets round to it.
+            // No RDW_UPDATENOW: that would block on an app that isn't responding.
+            if (!IsHungAppWindow(hwnd)) RedrawWindow(hwnd, 0, 0, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME);
+            return;
+        }
+
         var placement = new WINDOWPLACEMENT { length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
         GetWindowPlacement(hwnd, ref placement);
 

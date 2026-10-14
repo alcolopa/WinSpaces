@@ -28,6 +28,7 @@ public sealed class WindowTracker
     private readonly Func<IReadOnlyList<ApplicationRule>> _getRules;
     private readonly Func<string, string?> _getActiveWorkspace;
     private readonly TryConsumeRestorationDelegate _tryConsumeRestoration;
+    private readonly Func<string, int, string?> _resolveWorkspace;
     private readonly ConcurrentDictionary<nint, WindowState> _tracked = new();
 
     public WindowTracker(
@@ -37,8 +38,10 @@ public sealed class WindowTracker
         OperationGuard guard,
         Func<IReadOnlyList<ApplicationRule>>? getRules = null,
         Func<string, string?>? getActiveWorkspace = null,
-        TryConsumeRestorationDelegate? tryConsumeRestoration = null)
+        TryConsumeRestorationDelegate? tryConsumeRestoration = null,
+        Func<string, int, string?>? resolveWorkspace = null)
     {
+        _resolveWorkspace = resolveWorkspace ?? ((monitorId, index) => $"{monitorId}:{index}");
         _windowManager = windowManager;
         _monitorManager = monitorManager;
         _guard = guard;
@@ -66,6 +69,10 @@ public sealed class WindowTracker
             _tracked.TryRemove(evt.Hwnd, out _);
             return;
         }
+
+        // A parked window is off-screen on purpose; anything it reports now
+        // (its position above all) says nothing about where the user put it.
+        if (_windowManager.IsParked(evt.Hwnd)) return;
 
         if (_guard.IsSuppressed(evt.Hwnd))
         {
@@ -143,8 +150,33 @@ public sealed class WindowTracker
                         targetMonitorId = monitor.Id;
                     }
 
+                    // The host creates the target space (and any below it) if the
+                    // monitor doesn't have that many yet. Null means it can't be
+                    // had — a rule must then not apply, or the window would be
+                    // hidden in a space nothing can switch to.
+                    var targetWorkspaceId = _resolveWorkspace(targetMonitorId, rule.TargetWorkspaceIndex);
+                    if (targetWorkspaceId is null) continue;
+
                     state.MonitorId = targetMonitorId;
-                    state.WorkspaceId = $"{targetMonitorId}:{rule.TargetWorkspaceIndex}";
+                    state.WorkspaceId = targetWorkspaceId;
+
+                    // The window opened wherever the app chose; the rule has to
+                    // put it on the target monitor for real. Otherwise the
+                    // next event sees it on the wrong monitor and resets its
+                    // assignment to that monitor's first space.
+                    if (!string.Equals(targetMonitorId, monitor.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var target = _monitorManager.GetMonitors()
+                            .FirstOrDefault(m => string.Equals(m.Id, targetMonitorId, StringComparison.OrdinalIgnoreCase));
+                        if (target is not null)
+                        {
+                            state.NormalBounds = MonitorGeometry.MapBetweenMonitors(state.NormalBounds, monitor.Bounds, target.Bounds);
+                            using (_guard.Suppress(hwnd))
+                            {
+                                _windowManager.Move(hwnd, state.NormalBounds);
+                            }
+                        }
+                    }
 
                     // If the target workspace is not active, hide it immediately
                     var targetActiveWorkspace = _getActiveWorkspace(targetMonitorId);

@@ -10,6 +10,8 @@ public enum TrayMenuCommand
     Profiles,
     Diagnostics,
     ShowAllWindows,
+    CheckForUpdates,
+    InstallUpdate,
     Exit
 }
 
@@ -126,6 +128,8 @@ public sealed class TrayIcon : IDisposable
         (TrayMenuCommand.Profiles, "Profiles..."),
         (TrayMenuCommand.Diagnostics, "Diagnostics..."),
         (TrayMenuCommand.ShowAllWindows, "Show All Windows"),
+        (TrayMenuCommand.CheckForUpdates, "Check for Updates"),
+        (TrayMenuCommand.InstallUpdate, ""),
         (TrayMenuCommand.Exit, "Exit")
     };
 
@@ -137,6 +141,9 @@ public sealed class TrayIcon : IDisposable
 
     /// <summary>Asked each time the menu opens; Diagnostics only appears in debug mode.</summary>
     public Func<bool>? IsDiagnosticsVisible { get; set; }
+
+    /// <summary>Menu text for the "update available" entry; null hides it.</summary>
+    public string? UpdateAvailableLabel { get; set; }
 
     public event EventHandler<TrayMenuCommand>? MenuItemInvoked;
     public event EventHandler? DoubleClicked;
@@ -250,7 +257,14 @@ public sealed class TrayIcon : IDisposable
                 // rather than renumbering the ones after it.
                 if (MenuItems[i].Command == TrayMenuCommand.Diagnostics && !(IsDiagnosticsVisible?.Invoke() ?? false)) continue;
 
-                AppendMenu(hMenu, 0, (nint)(i + 1), MenuItems[i].Label);
+                var label = MenuItems[i].Label;
+                if (MenuItems[i].Command == TrayMenuCommand.InstallUpdate)
+                {
+                    if (UpdateAvailableLabel is null) continue;
+                    label = UpdateAvailableLabel;
+                }
+
+                AppendMenu(hMenu, 0, (nint)(i + 1), label);
             }
 
             GetCursorPos(out var cursor);

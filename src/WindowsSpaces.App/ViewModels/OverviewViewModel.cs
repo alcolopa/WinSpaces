@@ -11,9 +11,21 @@ namespace WindowsSpaces.App.ViewModels;
 /// <summary>One window tile in the overview.</summary>
 public sealed class WindowOverviewViewModel : ViewModelBase
 {
+    /// <summary>
+    /// One tile for every window of the same application in a space: the
+    /// representative (first non-minimized, else first) supplies the title and
+    /// preview; <see cref="Hwnds"/> holds all of them so moves apply to the group.
+    /// </summary>
+    public WindowOverviewViewModel(IReadOnlyList<WindowState> group, string workspaceId, bool canPreview)
+        : this(group.FirstOrDefault(w => !w.IsMinimized) ?? group[0], workspaceId, canPreview)
+    {
+        Hwnds = group.Select(w => w.Hwnd).ToList();
+    }
+
     public WindowOverviewViewModel(WindowState state, string workspaceId, bool canPreview)
     {
         Hwnd = state.Hwnd;
+        Hwnds = new List<nint> { state.Hwnd };
         WorkspaceId = workspaceId;
         CanPreview = canPreview;
         ProcessPath = state.ProcessPath ?? string.Empty;
@@ -31,6 +43,7 @@ public sealed class WindowOverviewViewModel : ViewModelBase
     }
 
     public nint Hwnd { get; }
+    public IReadOnlyList<nint> Hwnds { get; private set; }
     public string Title { get; }
     public string ProcessPath { get; }
     public string ProcessName { get; }
@@ -50,7 +63,10 @@ public sealed class WindowOverviewViewModel : ViewModelBase
 
     public Visibility MinimizedBadgeVisibility => IsMinimized ? Visibility.Visible : Visibility.Collapsed;
 
-    public string Subtitle => IsMinimized ? $"{ProcessName} · minimized" : ProcessName;
+    public string Subtitle =>
+        Hwnds.Count > 1 ? $"{ProcessName} · {Hwnds.Count} windows"
+        : IsMinimized ? $"{ProcessName} · minimized"
+        : ProcessName;
 }
 
 /// <summary>One space column in the overview.</summary>
@@ -320,9 +336,13 @@ public sealed class OverviewViewModel : ViewModelBase
             var definition = definitions[i];
             var isActive = definition.Id == activeWorkspaceId;
 
+            // One tile per application: several windows of the same process
+            // in a space collapse into a single entry.
             var windows = (windowsByWorkspace.GetValueOrDefault(definition.Id) ?? new List<WindowState>())
                 .OrderBy(w => w.Title, StringComparer.CurrentCultureIgnoreCase)
-                .Select(w => new WindowOverviewViewModel(w, definition.Id, isActive));
+                .GroupBy(w => string.IsNullOrEmpty(w.ProcessPath) ? $"hwnd:{w.Hwnd}" : w.ProcessPath!, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new WindowOverviewViewModel(g.ToList(), definition.Id, isActive))
+                .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase);
 
             Workspaces.Add(new WorkspaceOverviewViewModel(
                 _monitorId,
@@ -412,7 +432,10 @@ public sealed class OverviewViewModel : ViewModelBase
             var tile = workspace.Windows.FirstOrDefault(w => w.Hwnd == hwnd);
             if (tile is not null)
             {
-                workspace.Windows.Remove(tile);
+                // A grouped tile stands for several windows; closing it closes
+                // only the one shown, so the tile stays until Refresh picks
+                // the next representative.
+                if (tile.Hwnds.Count <= 1) workspace.Windows.Remove(tile);
                 break;
             }
         }
@@ -443,7 +466,7 @@ public sealed class OverviewViewModel : ViewModelBase
         var target = Workspaces.FirstOrDefault(w => w.WorkspaceId == targetWorkspaceId);
         if (target is null) return false;
 
-        _workspaceManager.AssignWindow(hwnd, targetWorkspaceId);
+        foreach (var member in tile.Hwnds) _workspaceManager.AssignWindow(member, targetWorkspaceId);
 
         source.Windows.Remove(tile);
         tile.WorkspaceId = targetWorkspaceId;
@@ -473,11 +496,17 @@ public sealed class OverviewViewModel : ViewModelBase
             return false;
         }
 
-        if (!_moveWindowToMonitor(hwnd, targetMonitorId, targetWorkspaceId, out var error))
+        var members = Workspaces.SelectMany(w => w.Windows).FirstOrDefault(t => t.Hwnd == hwnd)?.Hwnds
+            ?? new List<nint> { hwnd };
+
+        foreach (var member in members)
         {
-            StatusMessage = error ?? "Could not move the window to that monitor.";
-            Refresh();
-            return false;
+            if (!_moveWindowToMonitor(member, targetMonitorId, targetWorkspaceId, out var error))
+            {
+                StatusMessage = error ?? "Could not move the window to that monitor.";
+                Refresh();
+                return false;
+            }
         }
 
         Refresh();

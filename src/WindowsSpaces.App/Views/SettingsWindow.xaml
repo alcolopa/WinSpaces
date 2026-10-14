@@ -534,6 +534,27 @@
                             </Grid>
                         </Border>
 
+                        <!-- Keep windows rendered Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="Keep Windows Rendered" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="Park windows off-screen instead of hiding them, so they stay painted and switching is instant. Parked windows still appear in the taskbar and Alt+Tab."
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="KeepRenderedToggle" IsOn="True" VerticalAlignment="Center" Margin="0" OffContent="" OnContent=""/>
+                            </Grid>
+                        </Border>
+
                         <!-- Open Settings on startup Card -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

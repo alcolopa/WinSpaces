@@ -57,6 +57,7 @@ jobs:
           --self-contained true
           -p:PublishReadyToRun=false
           -p:WindowsAppSDKSelfContained=true
+          -p:Version=${{ steps.version.outputs.version }}
           -o publish/App
 
       - name: Publish CLI (self-contained win-x64)

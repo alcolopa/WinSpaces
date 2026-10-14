@@ -60,9 +60,128 @@ public sealed class AppHost : IDisposable
                 }
                 restoration = null;
                 return false;
-            });
+            },
+            resolveWorkspace: ResolveRuleWorkspace);
         _animator = new SlideTransitionAnimator(_monitorApi, isEnabled: TransitionsEnabled);
         _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager(), _animator);
+    }
+
+    /// <summary>
+    /// The first overview of a session is slow — WinUI, the XAML for the pane
+    /// and the view model all load and JIT on first use. Build one pane unseen
+    /// shortly after startup so the user's first open is as fast as the rest.
+    /// </summary>
+    private void PrewarmOverview(Microsoft.UI.Dispatching.DispatcherQueue dispatcherQueue)
+    {
+        dispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            try
+            {
+                if (_overviewWindows.Count > 0) return;
+                var monitor = _monitorApi.GetMonitors().FirstOrDefault(m => m.IsPrimary) ?? _monitorApi.GetMonitors().FirstOrDefault();
+                if (monitor is null) return;
+
+                var win = new OverviewWindow(monitor, this, _workspaceManager, _tracker, new OverviewDragCoordinator(), prewarm: true);
+                win.Close();
+            }
+            catch (Exception ex) { CrashLogger.Log("Overview prewarm failed", ex); }
+        });
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueue? _uiQueue;
+
+    /// <summary>
+    /// The id of the monitor's <paramref name="index"/>th space for an
+    /// application rule, creating it — and any space below it — when the
+    /// monitor has fewer. A rule for "space 4" on a monitor with two spaces
+    /// adds spaces 3 and 4. Null when it can't be had (unknown monitor, past
+    /// the per-monitor limit, or the save failed).
+    /// Called from the window-event thread; space changes run on the UI thread.
+    /// </summary>
+    private string? ResolveRuleWorkspace(string monitorId, int index)
+    {
+        if (index < 1 || index > AppConfiguration.MaxWorkspacesPerMonitor) return null;
+
+        string? Lookup()
+        {
+            var known = _workspaceManager?.GetWorkspaces(monitorId);
+            if (known is null) return $"{monitorId}:{index}";
+            // No live list yet (startup, tests): the id convention is all there is.
+            if (known.Count == 0) return $"{monitorId}:{index}";
+            return known.Count >= index ? known[index - 1].Id : null;
+        }
+
+        var existing = Lookup();
+        if (existing is not null) return existing;
+
+        string? created = null;
+        void Create()
+        {
+            try
+            {
+                var monitorConfig = _config?.Monitors.FirstOrDefault(m => m.MonitorId == monitorId);
+                if (monitorConfig is null) return;
+
+                var workspaces = monitorConfig.Workspaces.ToList();
+                while (workspaces.Count < index)
+                {
+                    var nextIndex = workspaces.Count == 0 ? 1 : workspaces.Max(w => w.Index) + 1;
+                    var id = $"{monitorId}:{nextIndex}";
+                    while (workspaces.Any(w => w.Id == id)) id = $"{monitorId}:{++nextIndex}";
+                    workspaces.Add(new WorkspaceDefinition(id, UniqueWorkspaceName(workspaces, nextIndex), nextIndex));
+                }
+
+                if (!TryUpdateMonitorWorkspaces(monitorId, workspaces, out var error))
+                {
+                    CrashLogger.Log($"Rule could not create space {index} on {monitorId}: {error}");
+                    return;
+                }
+                created = Lookup();
+            }
+            catch (Exception ex) { CrashLogger.Log("Rule space creation failed", ex); }
+        }
+
+        var queue = _uiQueue;
+        if (queue is null || queue.HasThreadAccess)
+        {
+            Create();
+        }
+        else
+        {
+            using var done = new ManualResetEventSlim();
+            if (!queue.TryEnqueue(() => { try { Create(); } finally { done.Set(); } })) return null;
+            if (!done.Wait(TimeSpan.FromSeconds(5))) return null;
+        }
+
+        return created;
+    }
+
+    private Timer? _snapshotTimer;
+    private int _snapshotRefreshRunning;
+
+    /// <summary>The last picture taken of a window, for previewing windows that are hidden in another space.</summary>
+    public WindowPicture? GetWindowPicture(nint hwnd) => _windowApi.Snapshots.TryGet(hwnd);
+
+    /// <summary>
+    /// Keeps a recent picture of every on-screen window. Off the UI thread, and
+    /// skipped while the previous pass is still running.
+    /// </summary>
+    private void StartSnapshotRefresh()
+    {
+        _snapshotTimer = new Timer(_ =>
+        {
+            if (Interlocked.Exchange(ref _snapshotRefreshRunning, 1) == 1) return;
+            try
+            {
+                foreach (var state in _tracker.TrackedWindows.Values.ToList())
+                {
+                    if (state.IsVisible && !state.IsMinimized) _windowApi.Snapshots.Capture(state.Hwnd);
+                }
+                _windowApi.Snapshots.Prune();
+            }
+            catch (Exception ex) { CrashLogger.Log("Snapshot refresh failed", ex); }
+            finally { Interlocked.Exchange(ref _snapshotRefreshRunning, 0); }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5));
     }
 
     public WorkspaceManager WorkspaceManager => _workspaceManager;
@@ -85,7 +204,8 @@ public sealed class AppHost : IDisposable
                 }
                 restoration = null;
                 return false;
-            });
+            },
+            resolveWorkspace: ResolveRuleWorkspace);
         _animator = new SlideTransitionAnimator(_monitorApi, isEnabled: TransitionsEnabled);
         _workspaceManager = new WorkspaceManager(_windowApi, _tracker, _guard, new ProcessManager(), _animator);
     }
@@ -108,6 +228,7 @@ public sealed class AppHost : IDisposable
 
         var monitors = _monitorApi.GetMonitors();
         _config = SyncConfigurationToCurrentState(LoadOrDefaultConfiguration(monitors), monitors);
+        _windowApi.KeepWindowsRendered = _config.KeepWindowsRendered;
 
         // Startup must never crash the whole app over a hotkey conflict (with
         // Windows itself or another app) — go through the same rollback-safe
@@ -126,10 +247,14 @@ public sealed class AppHost : IDisposable
         }
 
         var dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _uiQueue = dispatcherQueue;
         _ipcServer = new IpcServer(this, dispatcherQueue);
         _ipcServer.Start();
 
         InitializeConfigWatcher();
+        StartUpdateChecks();
+        StartSnapshotRefresh();
+        PrewarmOverview(dispatcherQueue);
 
         // Open the settings window on startup unless the user turned that off —
         // but never stay silent about a failed hotkey registration, since the
@@ -137,6 +262,158 @@ public sealed class AppHost : IDisposable
         if (_config.ShowSettingsOnStartup || hotkeyError is not null)
         {
             OnTrayMenuItemInvoked(this, TrayMenuCommand.Settings);
+        }
+    }
+
+    // ---- Update checking -------------------------------------------------
+
+    private const string UpdateRepoOwner = "alcolopa";
+    private const string UpdateRepoName = "WinSpaces";
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(24);
+
+    private readonly UpdateChecker _updateChecker =
+        new(new HttpClient { Timeout = TimeSpan.FromSeconds(15) }, UpdateRepoOwner, UpdateRepoName);
+    private System.Threading.Timer? _updateTimer;
+    private UpdateInfo? _availableUpdate;
+    private int _updateCheckRunning;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int MessageBoxW(nint hWnd, string text, string caption, uint type);
+
+    private static string CurrentVersion
+    {
+        get
+        {
+            var info = typeof(AppHost).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                .FirstOrDefault()?.InformationalVersion;
+            // The SDK appends "+<commit hash>" as build metadata; it's noise
+            // in the UI and has no place in the version comparison.
+            var plus = info?.IndexOf('+') ?? -1;
+            if (plus >= 0) info = info![..plus];
+            return info ?? typeof(AppHost).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+        }
+    }
+
+    /// <summary>Checks shortly after launch, then once a day while the app stays running.</summary>
+    private Microsoft.UI.Dispatching.DispatcherQueue? _uiDispatcher;
+
+    private void StartUpdateChecks()
+    {
+        _uiDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _updateTimer = new System.Threading.Timer(
+            _ => _ = CheckForUpdatesAsync(userInitiated: false),
+            null,
+            TimeSpan.FromSeconds(20),
+            UpdateCheckInterval);
+    }
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        // One check at a time; a second click while one is in flight is ignored.
+        if (Interlocked.Exchange(ref _updateCheckRunning, 1) == 1) return;
+
+        try
+        {
+            var update = await _updateChecker.CheckAsync(CurrentVersion).ConfigureAwait(false);
+            _availableUpdate = update;
+
+            if (_trayIcon is not null)
+            {
+                _trayIcon.UpdateAvailableLabel = update is null ? null : $"Update available: v{update.Version}";
+                if (update is not null) _trayIcon.SetTooltip($"Windows Spaces — update v{update.Version} available");
+            }
+
+            if (!userInitiated) return;
+
+            if (update is null)
+            {
+                MessageBoxW(0, $"Windows Spaces is up to date (v{CurrentVersion}), or the update server could not be reached.",
+                    "Windows Spaces", 0x40); // MB_ICONINFORMATION
+            }
+            else if (MessageBoxW(0, $"Version {update.Version} is available (you have {CurrentVersion}).\n\nInstall it now? Windows Spaces will restart.",
+                         "Windows Spaces", 0x24) == 6) // MB_YESNO | MB_ICONQUESTION, IDYES
+            {
+                await InstallUpdateAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log("Update check failed", ex);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _updateCheckRunning, 0);
+        }
+    }
+
+    private int _updateInstalling;
+
+    /// <summary>
+    /// Downloads the new installer, runs it silently (no wizard) and exits so
+    /// it can replace our files; the installer relaunches the app when done.
+    /// Falls back to the release page if there is no installer asset or the
+    /// download fails verification.
+    /// </summary>
+    private async Task InstallUpdateAsync()
+    {
+        var update = _availableUpdate;
+        if (update is null) return;
+        if (Interlocked.Exchange(ref _updateInstalling, 1) == 1) return;
+
+        try
+        {
+            _trayIcon?.SetTooltip($"Windows Spaces — downloading v{update.Version}…");
+
+            var directory = Path.Combine(Path.GetTempPath(), "WindowsSpaces-update");
+            var installer = await _updateChecker.DownloadInstallerAsync(update, directory).ConfigureAwait(false);
+
+            if (installer is null)
+            {
+                _trayIcon?.SetTooltip($"Windows Spaces — update v{update.Version} available");
+                if (MessageBoxW(0, "The update could not be downloaded automatically.\n\nOpen the download page instead?",
+                        "Windows Spaces", 0x24) == 6)
+                {
+                    OpenUpdatePage();
+                }
+                return;
+            }
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(installer)
+            {
+                // /UPDATE=1 tells the script to relaunch the app after a silent install.
+                Arguments = "/SILENT /SUPPRESSMSGBOXES /NOCANCEL /NORESTART /CLOSEAPPLICATIONS /UPDATE=1",
+                UseShellExecute = true
+            });
+
+            // Same path as the tray "Exit": restores hidden windows, then quits
+            // so the installer is free to overwrite the app's files.
+            void Quit() { Dispose(); Program.RequestExit(); }
+            if (_uiDispatcher is not null) _uiDispatcher.TryEnqueue(Quit);
+            else Quit();
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log("Installing update failed", ex);
+            Interlocked.Exchange(ref _updateInstalling, 0);
+            MessageBoxW(0, "The update could not be installed. You can download it manually from the releases page.", "Windows Spaces", 0x10);
+            OpenUpdatePage();
+        }
+    }
+
+    private void OpenUpdatePage()
+    {
+        var update = _availableUpdate;
+        if (update is null) return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(update.ReleaseUrl) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log("Could not open the update page", ex);
         }
     }
 
@@ -270,6 +547,12 @@ public sealed class AppHost : IDisposable
                 break;
             case TrayMenuCommand.Diagnostics:
                 OpenSettings("Diagnostics");
+                break;
+            case TrayMenuCommand.CheckForUpdates:
+                _ = CheckForUpdatesAsync(userInitiated: true);
+                break;
+            case TrayMenuCommand.InstallUpdate:
+                _ = InstallUpdateAsync();
                 break;
         }
     }
@@ -418,9 +701,17 @@ public sealed class AppHost : IDisposable
     /// id, so nothing observable changes except the numbers in the config
     /// file and, for a workspace profile snapshot, the ids it references.
     /// </summary>
-    private static AppConfiguration RenumberWorkspaceIndexes(AppConfiguration config)
+    private static AppConfiguration RenumberWorkspaceIndexes(AppConfiguration config) =>
+        RenumberWorkspaceIndexes(config, out _);
+
+    /// <param name="idMap">
+    /// Old id to new id for every space on a monitor that was renumbered
+    /// (unchanged spaces on that monitor included), so live state can follow.
+    /// Monitors that were already 1..N are absent.
+    /// </param>
+    private static AppConfiguration RenumberWorkspaceIndexes(AppConfiguration config, out Dictionary<string, string> idMap)
     {
-        var idMap = new Dictionary<string, string>();
+        idMap = new Dictionary<string, string>();
         var renumberedMonitors = new List<MonitorWorkspaceConfig>();
         var changed = false;
 
@@ -441,21 +732,34 @@ public sealed class AppHost : IDisposable
                 var old = ordered[i];
                 var newId = $"{monitor.MonitorId}:{i + 1}";
                 idMap[old.Id] = newId;
-                newWorkspaces.Add(old with { Id = newId, Index = i + 1 });
+
+                // A space still carrying its default name follows its number
+                // ("Space 3" becomes "Space 2" once space 1 is gone); one the
+                // user named keeps its name.
+                var name = old.Name;
+                var newDefault = $"Space {i + 1}";
+                if (name == $"Space {old.Index}" &&
+                    !ordered.Any(o => o != old && o.Name.Equals(newDefault, StringComparison.OrdinalIgnoreCase)))
+                {
+                    name = newDefault;
+                }
+
+                newWorkspaces.Add(old with { Id = newId, Name = name, Index = i + 1 });
             }
             renumberedMonitors.Add(monitor with { Workspaces = newWorkspaces });
         }
 
         if (!changed) return config;
 
+        var map = idMap;
         var renumberedProfiles = config.ActiveProfiles.Select(p => p with
         {
             ActiveWorkspaceByMonitor = p.ActiveWorkspaceByMonitor.ToDictionary(
                 kv => kv.Key,
-                kv => idMap.GetValueOrDefault(kv.Value, kv.Value)),
+                kv => map.GetValueOrDefault(kv.Value, kv.Value)),
             Windows = p.Windows?.Select(w => w with
             {
-                WorkspaceId = idMap.GetValueOrDefault(w.WorkspaceId, w.WorkspaceId)
+                WorkspaceId = map.GetValueOrDefault(w.WorkspaceId, w.WorkspaceId)
             }).ToList()
         }).ToList();
 
@@ -496,12 +800,22 @@ public sealed class AppHost : IDisposable
             return false;
         }
 
-        _config = config;
+        // Deleting a space closes the gap: 1,3 becomes 1,2 and so on, with the
+        // windows following their space to its new number.
+        var oldConfig = config;
+        config = RenumberWorkspaceIndexes(config, out var renumbered);
 
-        foreach (var monitorConfig in config.Monitors)
+        _config = config;
+        _windowApi.KeepWindowsRendered = config.KeepWindowsRendered;
+
+        foreach (var (monitorConfig, original) in config.Monitors.Zip(oldConfig.Monitors))
         {
             if (monitorConfig.Workspaces.Count == 0) continue;
-            _workspaceManager.SetMonitorWorkspaces(monitorConfig.MonitorId, monitorConfig.Workspaces);
+
+            var monitorMap = original.Workspaces.All(w => renumbered.ContainsKey(w.Id))
+                ? original.Workspaces.ToDictionary(w => w.Id, w => renumbered[w.Id])
+                : null;
+            _workspaceManager.SetMonitorWorkspaces(monitorConfig.MonitorId, monitorConfig.Workspaces, monitorMap);
         }
 
         WorkspacesChanged?.Invoke(this, EventArgs.Empty);
@@ -1210,6 +1524,23 @@ public sealed class AppHost : IDisposable
             return;
         }
 
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+
+        // Every tile gets a picture, like Mission Control: capture any
+        // on-screen window that has none yet (new since the last refresh).
+        // PrintWindow blocks on the target app, so it runs off the UI thread
+        // instead of delaying the overview. Windows already hidden can't be
+        // captured; they keep what they have.
+        var toCapture = _tracker.TrackedWindows.Values
+            .Where(s => s.IsVisible && !s.IsMinimized)
+            .Select(s => s.Hwnd)
+            .ToList();
+        _ = Task.Run(() =>
+        {
+            try { foreach (var hwnd in toCapture) _windowApi.Snapshots.CaptureIfMissing(hwnd); }
+            catch (Exception ex) { CrashLogger.Log("Overview snapshot capture failed", ex); }
+        });
+
         // One coordinator per overview session, shared by every pane, so a
         // drag that starts on one monitor can be resolved against another.
         var dragCoordinator = new OverviewDragCoordinator();
@@ -1231,6 +1562,8 @@ public sealed class AppHost : IDisposable
             _overviewWindows.Add(win);
             win.Activate();
         }
+
+        CrashLogger.Log($"Overview opened in {timer.ElapsedMilliseconds} ms");
     }
 
     private void CloseOverview()
@@ -1271,6 +1604,8 @@ public sealed class AppHost : IDisposable
         // Before ShowAllWindows: a transition still in flight would otherwise
         // hide windows again a moment after they were shown for the last time.
         try { _animator.Dispose(); } catch { }
+        try { _updateTimer?.Dispose(); } catch { }
+        try { _snapshotTimer?.Dispose(); } catch { }
 
         try { _workspaceManager.ShowAllWindows(); } catch { }
 

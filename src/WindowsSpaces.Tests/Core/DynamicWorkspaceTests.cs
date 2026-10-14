@@ -111,6 +111,30 @@ public class DynamicWorkspaceTests
     }
 
     [Fact]
+    public void SetMonitorWorkspaces_DeletingTheFirstSpaceWithRenumbering_ShiftsTheOthersDown()
+    {
+        var (windows, tracker, manager, monitors) = CreateHarness();
+        manager.SetMonitorWorkspaces(MonitorId, Spaces(1, 2, 3));
+        SeedWindow(windows, monitors, tracker, 301, $"{MonitorId}:1");
+        SeedWindow(windows, monitors, tracker, 302, $"{MonitorId}:2");
+        SeedWindow(windows, monitors, tracker, 303, $"{MonitorId}:3");
+        manager.SwitchWorkspace(MonitorId, $"{MonitorId}:3");
+
+        // Space 1 deleted; old 2 and 3 become 1 and 2.
+        var renumbered = new Dictionary<string, string>
+        {
+            [$"{MonitorId}:2"] = $"{MonitorId}:1",
+            [$"{MonitorId}:3"] = $"{MonitorId}:2",
+        };
+        manager.SetMonitorWorkspaces(MonitorId, Spaces(1, 2), renumbered);
+
+        Assert.Equal($"{MonitorId}:1", tracker.TrackedWindows[301].WorkspaceId); // deleted space's window goes to its right neighbour
+        Assert.Equal($"{MonitorId}:1", tracker.TrackedWindows[302].WorkspaceId);
+        Assert.Equal($"{MonitorId}:2", tracker.TrackedWindows[303].WorkspaceId);
+        Assert.Equal($"{MonitorId}:2", manager.GetActiveWorkspace(MonitorId));
+    }
+
+    [Fact]
     public void SetMonitorWorkspaces_DeletingTheFirstSpace_MovesItsWindowsToTheSpaceOnItsRight()
     {
         var (windows, tracker, manager, monitors) = CreateHarness();

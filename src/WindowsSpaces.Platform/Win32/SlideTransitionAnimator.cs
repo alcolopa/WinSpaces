@@ -22,17 +22,17 @@ public sealed class SlideTransitionAnimator : IWorkspaceTransitionAnimator, IDis
 {
     private const string WindowClassName = "WindowsSpacesSlideOverlay";
     /// <summary>How long the outgoing space takes to leave.</summary>
-    private const int OutgoingMilliseconds = 240;
+    private const int OutgoingMilliseconds = 260;
 
     /// <summary>
     /// How long after the outgoing space starts leaving the incoming one
     /// starts arriving. Doubles as the grace period the freshly shown windows
     /// get to paint themselves before their mirrors are put on screen.
     /// </summary>
-    private const int IncomingDelayMilliseconds = 200;
+    private const int IncomingDelayMilliseconds = 0;
 
     /// <summary>How long the incoming space takes to arrive.</summary>
-    private const int IncomingMilliseconds = 240;
+    private const int IncomingMilliseconds = 260;
 
     private const int FrameSleepMilliseconds = 4;
 
@@ -201,8 +201,8 @@ public sealed class SlideTransitionAnimator : IWorkspaceTransitionAnimator, IDis
                 var incomingElapsed = elapsed - IncomingDelayMilliseconds;
                 var inProgress = Math.Clamp(incomingElapsed / (double)IncomingMilliseconds, 0, 1);
 
-                var outTravelled = (int)Math.Round(EaseOut(outProgress) * distance);
-                var inTravelled = (int)Math.Round(EaseOut(inProgress) * distance);
+                var outTravelled = (int)Math.Round(Ease(outProgress) * distance);
+                var inTravelled = (int)Math.Round(Ease(inProgress) * distance);
 
                 for (var i = 0; i < thumbnails.Count; i++)
                 {
@@ -249,12 +249,14 @@ public sealed class SlideTransitionAnimator : IWorkspaceTransitionAnimator, IDis
     private bool IsSuperseded(string monitorId) =>
         _queuedByMonitor.TryGetValue(monitorId, out var queued) && queued > 0;
 
-    /// <summary>Cubic ease-out: fast departure, soft landing.</summary>
-    private static double EaseOut(double t)
-    {
-        var inverse = 1 - t;
-        return 1 - inverse * inverse * inverse;
-    }
+    /// <summary>
+    /// Cubic ease-in-out. Ease-out alone cleared the outgoing space in the
+    /// first third of the slide, so with the incoming space starting later the
+    /// monitor showed bare wallpaper in between. Easing in as well keeps the
+    /// two halves moving as one strip with no gap.
+    /// </summary>
+    private static double Ease(double t) =>
+        t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2;
 
     private static Thumbnail? Register(List<Thumbnail> thumbnails, nint overlay, nint source, int originX, int originY)
     {

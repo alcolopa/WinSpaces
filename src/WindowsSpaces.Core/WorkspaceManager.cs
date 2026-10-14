@@ -29,6 +29,9 @@ public sealed class WorkspaceManager
     private readonly ConcurrentDictionary<string, string> _activeWorkspaceByMonitor = new();
     private readonly ConcurrentDictionary<string, MonitorTransitionState> _transitions = new();
 
+    /// <summary>Where each window last sat in the z-order while visible (0 = frontmost).</summary>
+    private readonly ConcurrentDictionary<nint, int> _stackRank = new();
+
     private readonly IProcessManager _processManager;
     private readonly IWorkspaceTransitionAnimator? _animator;
     private readonly List<WindowProfileState> _pendingRestorations = new();
@@ -144,7 +147,10 @@ public sealed class WorkspaceManager
     /// space falls back the same way if the monitor was showing the deleted
     /// space. A list that would leave a monitor with zero spaces is ignored.
     /// </summary>
-    public void SetMonitorWorkspaces(string monitorId, IReadOnlyList<WorkspaceDefinition> workspaces)
+    public void SetMonitorWorkspaces(
+        string monitorId,
+        IReadOnlyList<WorkspaceDefinition> workspaces,
+        IReadOnlyDictionary<string, string>? renumbered = null)
     {
         if (workspaces is null || workspaces.Count == 0) return;
 
@@ -174,15 +180,46 @@ public sealed class WorkspaceManager
                 _workspaceNames.TryRemove(stale.Id, out _);
             }
 
-            relocations = _tracker.TrackedWindows.Values
-                .Where(w => w.MonitorId == monitorId)
-                .Where(w => w.WorkspaceId is null || !surviving.Contains(w.WorkspaceId))
-                .Select(w => (w.Hwnd, ResolveSurvivor(w.WorkspaceId, previous, ordered)))
-                .ToList();
+            // When the caller closed the gap left by a delete (space 2 of 3
+            // becoming space 1 of 2, ...), the surviving spaces carry new ids.
+            // Everything is reasoned about in the OLD ids, which is what the
+            // windows and the active selection still hold, and translated at
+            // the end â€” so a renumbered space keeps its windows in place and a
+            // deleted one still hands its windows to its old neighbour.
+            string ToNew(string oldId) =>
+                renumbered is not null && renumbered.TryGetValue(oldId, out var mapped) ? mapped : oldId;
 
-            if (_activeWorkspaceByMonitor.TryGetValue(monitorId, out var active) && !surviving.Contains(active))
+            IReadOnlyList<WorkspaceDefinition> current = ordered;
+            if (renumbered is not null)
             {
-                fallbackForActive = ResolveSurvivor(active, previous, ordered);
+                var reverse = renumbered.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.Ordinal);
+                current = ordered.Select(w => w with { Id = reverse.GetValueOrDefault(w.Id, w.Id) }).ToList();
+            }
+            var survivingOld = current.Select(w => w.Id).ToHashSet(StringComparer.Ordinal);
+
+            relocations = new List<(nint, string)>();
+            foreach (var window in _tracker.TrackedWindows.Values.Where(w => w.MonitorId == monitorId).ToList())
+            {
+                if (window.WorkspaceId is not null && survivingOld.Contains(window.WorkspaceId))
+                {
+                    // Still has its space, only maybe under a new number.
+                    window.WorkspaceId = ToNew(window.WorkspaceId);
+                    continue;
+                }
+
+                relocations.Add((window.Hwnd, ToNew(ResolveSurvivor(window.WorkspaceId, previous, current))));
+            }
+
+            if (_activeWorkspaceByMonitor.TryGetValue(monitorId, out var active))
+            {
+                if (survivingOld.Contains(active))
+                {
+                    _activeWorkspaceByMonitor[monitorId] = ToNew(active);
+                }
+                else
+                {
+                    fallbackForActive = ToNew(ResolveSurvivor(active, previous, current));
+                }
             }
         }
 
@@ -196,7 +233,6 @@ public sealed class WorkspaceManager
             SwitchWorkspace(monitorId, fallbackForActive);
         }
     }
-
     /// <summary>
     /// Picks the space a window (or the active selection) should land on when
     /// the space it referred to has been deleted: the nearest surviving space
@@ -444,6 +480,18 @@ public sealed class WorkspaceManager
         var outgoing = windowsOnMonitor.Where(w => w.WorkspaceId != targetWorkspaceId).ToList();
         var incoming = windowsOnMonitor.Where(w => w.WorkspaceId == targetWorkspaceId).ToList();
 
+        // Remember how the windows now on screen are stacked, before they are
+        // hidden — a hidden window has no z-order to read back later.
+        try
+        {
+            var stacking = _windowManager.EnumerateTopLevelWindows();
+            for (var rank = 0; rank < stacking.Count; rank++) _stackRank[stacking[rank]] = rank;
+        }
+        catch (Exception)
+        {
+            // Stacking is a nicety; a failed read must not cost the switch.
+        }
+
         var shown = 0;
         void ShowIncoming()
         {
@@ -452,7 +500,10 @@ public sealed class WorkspaceManager
             // re-raise it over whatever the user has since focused.
             if (Interlocked.Exchange(ref shown, 1) == 1) return;
 
-            foreach (var window in incoming)
+            // Each Show puts its window on top, so the last one shown ends up
+            // frontmost. Show bottom-to-top (highest rank first) to restore the
+            // order the user left them in; windows never seen stacked go first.
+            foreach (var window in incoming.OrderByDescending(w => _stackRank.GetValueOrDefault(w.Hwnd, int.MaxValue)))
             {
                 using (_guard.Suppress(window.Hwnd))
                 {

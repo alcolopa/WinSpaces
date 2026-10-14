@@ -9,7 +9,8 @@ public sealed record AppConfiguration(
     string? ActiveProfileName = null,
     bool EnableTransitions = true,
     bool ShowSettingsOnStartup = true,
-    bool DebugMode = false)
+    bool DebugMode = false,
+    bool KeepWindowsRendered = true)
 {
     public const int CurrentSchemaVersion = 1;
 

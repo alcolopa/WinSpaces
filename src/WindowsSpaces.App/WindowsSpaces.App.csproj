@@ -19,6 +19,15 @@
     <SelfContained>false</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- What Task Manager shows: its Name column uses the file description
+         (AssemblyTitle), not the exe name. -->
+    <AssemblyTitle>WinSpaces</AssemblyTitle>
+    <Product>WinSpaces</Product>
+    <Company>WinSpaces</Company>
+    <Description>WinSpaces</Description>
+    <!-- Release builds override this with -p:Version=<tag> (see release.yml);
+         the update checker compares it against the latest GitHub release. -->
+    <Version>0.0.2-beta</Version>
     <!-- Keep Program.Main as the entry point; without this the XAML compiler
          generates its own Main and the build fails with CS0017. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>

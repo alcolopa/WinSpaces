@@ -58,9 +58,18 @@ Name: "{userstartup}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: startu
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+; In-app silent update (started with /UPDATE=1): no wizard, so relaunch here.
+Filename: "{app}\{#AppExeName}"; Flags: nowait; Check: IsInAppUpdate
+
 
 ; Config lives in %APPDATA%\WindowsSpaces (see AppHost.cs); left in place on
 ; uninstall by default so re-installing keeps the user's settings. Uncomment
 ; to wipe it instead:
 ; [UninstallDelete]
 ; Type: filesandordirs; Name: "{userappdata}\WindowsSpaces"
+
+[Code]
+function IsInAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;

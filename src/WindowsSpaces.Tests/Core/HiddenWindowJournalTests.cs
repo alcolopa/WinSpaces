@@ -34,6 +34,20 @@ public class HiddenWindowJournalTests : IDisposable
     }
 
     [Fact]
+    public void ParkedWindows_KeepTheirOriginalBounds_ThroughTheJournal()
+    {
+        var journal = new HiddenWindowJournal(_path);
+        var parked = new HiddenWindowJournal.Entry(300, 44, "Chrome_WidgetWin_1|x", new HiddenWindowJournal.ParkedRect(-1920, 40, 1200, 800));
+        journal.Add(parked);
+        journal.Add(new HiddenWindowJournal.Entry(301, 45, "Plain"));
+
+        var stale = new HiddenWindowJournal(_path).TakeStaleEntries();
+
+        Assert.Contains(parked, stale);
+        Assert.Contains(new HiddenWindowJournal.Entry(301, 45, "Plain"), stale);
+    }
+
+    [Fact]
     public void CorruptLinesAreSkipped()
     {
         File.WriteAllText(_path, "garbage\n100|42|A\nx|y|z");

@@ -18,6 +18,13 @@ public interface IWindowManager
     /// </summary>
     bool IsCloaked(nint hwnd);
     WindowState? GetWindowState(nint hwnd);
+    /// <summary>
+    /// True while the window is parked off-screen by <see cref="Hide"/> rather
+    /// than hidden. Its position is then meaningless: the tracker must not read
+    /// it as the user moving the window to another monitor.
+    /// </summary>
+    bool IsParked(nint hwnd) => false;
+
     void Hide(nint hwnd);
     void Show(nint hwnd);
     void Move(nint hwnd, Rectangle bounds);

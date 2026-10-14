@@ -41,6 +41,14 @@ public sealed class SettingsViewModel : ViewModelBase
         _original = _original with { ActiveProfileName = name };
 
     private bool _debugMode;
+    private bool _keepWindowsRendered;
+
+    /// <summary>Park other spaces' windows off-screen instead of hiding them, so they keep rendering and switching is instant.</summary>
+    public bool KeepWindowsRendered
+    {
+        get => _keepWindowsRendered;
+        set { if (SetProperty(ref _keepWindowsRendered, value)) RaiseChanged(); }
+    }
 
     /// <summary>Shows the Diagnostics page and tray entry; off for everyday use.</summary>
     public bool DebugMode
@@ -135,6 +143,7 @@ public sealed class SettingsViewModel : ViewModelBase
         _enableTransitions = current.EnableTransitions;
         _showSettingsOnStartup = current.ShowSettingsOnStartup;
         _debugMode = current.DebugMode;
+        _keepWindowsRendered = current.KeepWindowsRendered;
 
         MonitorItems = new ObservableCollection<MonitorItemViewModel>(
             current.Monitors.Select(m => new MonitorItemViewModel(m)));
@@ -480,7 +489,8 @@ public sealed class SettingsViewModel : ViewModelBase
                 : null,
             EnableTransitions = _enableTransitions,
             ShowSettingsOnStartup = _showSettingsOnStartup,
-            DebugMode = _debugMode
+            DebugMode = _debugMode,
+            KeepWindowsRendered = _keepWindowsRendered
         };
 
         if (!candidate.Validate(out error))

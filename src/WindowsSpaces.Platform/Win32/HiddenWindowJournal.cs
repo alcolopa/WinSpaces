@@ -15,7 +15,11 @@ namespace WindowsSpaces.Platform.Win32;
 /// </summary>
 public sealed class HiddenWindowJournal
 {
-    public readonly record struct Entry(long Hwnd, uint ProcessId, string WindowClass);
+    /// <summary>Where a window sat before it was parked off-screen.</summary>
+    public readonly record struct ParkedRect(int Left, int Top, int Width, int Height);
+
+    /// <param name="Parked">Set when the window was moved off-screen rather than hidden; recovery moves it back here.</param>
+    public readonly record struct Entry(long Hwnd, uint ProcessId, string WindowClass, ParkedRect? Parked = null);
 
     private readonly string _path;
     private readonly object _lock = new();
@@ -73,11 +77,28 @@ public sealed class HiddenWindowJournal
         }
     }
 
-    internal static string Format(Entry e) => $"{e.Hwnd}|{e.ProcessId}|{e.WindowClass}";
+    internal static string Format(Entry e) => e.Parked is { } p
+        ? $"{e.Hwnd}|{e.ProcessId}|{p.Left},{p.Top},{p.Width},{p.Height}|{e.WindowClass}"
+        : $"{e.Hwnd}|{e.ProcessId}|{e.WindowClass}";
 
     internal static bool TryParse(string line, out Entry entry)
     {
         entry = default;
+
+        // Parked form: hwnd|pid|left,top,width,height|class
+        var parked = line.Split('|', 4);
+        if (parked.Length == 4 && long.TryParse(parked[0], out var parkedHwnd) && uint.TryParse(parked[1], out var parkedPid))
+        {
+            var rect = parked[2].Split(',');
+            if (rect.Length == 4 &&
+                int.TryParse(rect[0], out var left) && int.TryParse(rect[1], out var top) &&
+                int.TryParse(rect[2], out var width) && int.TryParse(rect[3], out var height))
+            {
+                entry = new Entry(parkedHwnd, parkedPid, parked[3], new ParkedRect(left, top, width, height));
+                return true;
+            }
+        }
+
         var parts = line.Split('|', 3);
         if (parts.Length != 3 || !long.TryParse(parts[0], out var hwnd) || !uint.TryParse(parts[1], out var pid))
             return false;

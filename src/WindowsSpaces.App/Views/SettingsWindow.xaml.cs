@@ -99,6 +99,9 @@ public sealed partial class SettingsWindow : Window
             EnableTransitionsToggle.IsOn = _viewModel.EnableTransitions;
             EnableTransitionsToggle.Toggled += (s, e) => _viewModel.EnableTransitions = EnableTransitionsToggle.IsOn;
 
+            KeepRenderedToggle.IsOn = _viewModel.KeepWindowsRendered;
+            KeepRenderedToggle.Toggled += (s, e) => _viewModel.KeepWindowsRendered = KeepRenderedToggle.IsOn;
+
             DebugModeToggle.IsOn = _viewModel.DebugMode;
             ApplyDebugMode(_viewModel.DebugMode);
             DebugModeToggle.Toggled += (s, e) =>
