@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.2-beta
+- In-app update checker: compares the running version against the latest GitHub release and can install it silently (installer relaunches the app).
+- App now shows as "WinSpaces" in Task Manager.
+- Window snapshot cache and switching/tracking improvements; release workflow stamps the tag version into the build.
+
 ## 0.0.1-beta
 - Single-instance guard: a second launch exits instead of fighting the first for hotkeys and the IPC pipe.
 - Crash recovery: windows hidden by a session that was killed (Task Manager, power loss) are shown again at next launch, via a journal at `%LOCALAPPDATA%\WindowsSpaces\hidden-windows.txt`.
