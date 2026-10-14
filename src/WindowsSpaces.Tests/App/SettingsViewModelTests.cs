@@ -27,6 +27,120 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public void SyncFromConfiguration_AddsSpacesCreatedElsewhere_WithoutRaisingChangedForTheMerge()
+    {
+        var config = TestConfigurations.WithTwoSpaces(MonA);
+        var vm = new SettingsViewModel(config);
+        var changed = 0;
+        vm.Changed += (_, _) => changed++;
+
+        var hostMonitor = config.Monitors.Single();
+        var grown = hostMonitor.Workspaces.Append(new WorkspaceDefinition("MON-A:3", "Space 3", 3)).ToList();
+        var host = config with { Monitors = new[] { hostMonitor with { Workspaces = grown } } };
+
+        vm.SyncFromConfiguration(host, mergeRemovalsAndRenames: true);
+
+        Assert.Equal(3, vm.MonitorItems.Single().Workspaces.Count);
+        // Only the new space's number-key hotkeys count as edits, not the merge itself.
+        Assert.True(changed > 0);
+    }
+
+    [Fact]
+    public void SyncFromConfiguration_KeepsPendingEditsWhenToldNotToMergeRemovals()
+    {
+        var config = TestConfigurations.WithTwoSpaces(MonA);
+        var vm = new SettingsViewModel(config);
+        vm.AddWorkspace("MON-A"); // user's own, not yet applied
+
+        vm.SyncFromConfiguration(config, mergeRemovalsAndRenames: false);
+
+        Assert.Equal(3, vm.MonitorItems.Single().Workspaces.Count);
+    }
+
+    [Fact]
+    public void MonitorDisplayName_UsesCustomNameAndRoundTripsThroughConfig()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        var monitor = vm.MonitorItems.Single();
+        Assert.Equal("MON-A", monitor.MonitorDisplayName);
+
+        monitor.CustomName = "  Left screen ";
+
+        Assert.Equal("Left screen", monitor.MonitorDisplayName);
+        Assert.Equal("Left screen", monitor.ToConfig().DisplayName);
+
+        monitor.CustomName = "";
+        Assert.Equal("MON-A", monitor.MonitorDisplayName);
+        Assert.Null(monitor.ToConfig().DisplayName);
+    }
+
+    [Fact]
+    public void AddRule_CreatesEmptyRuleAimedAtFirstMonitor_AndBlankFieldsBecomeNull()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+
+        var rule = vm.AddRule();
+        rule.ProcessPath = "  ";
+        rule.WindowTitle = "";
+
+        var saved = rule.ToRule();
+        Assert.Equal("MON-A", saved.TargetMonitorId);
+        Assert.Null(saved.ProcessPath);
+        Assert.Null(saved.WindowTitle);
+        Assert.Same(vm.MonitorItems, rule.MonitorChoices);
+    }
+
+    [Fact]
+    public void ShowSettingsOnStartup_DefaultsOn_AndRoundTripsThroughSave()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        Assert.True(vm.ShowSettingsOnStartup);
+
+        vm.ShowSettingsOnStartup = false;
+
+        Assert.True(vm.TrySave(out var saved, out _));
+        Assert.False(saved.ShowSettingsOnStartup);
+    }
+
+    [Fact]
+    public void DebugMode_DefaultsOff_AndRoundTripsThroughSave()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        Assert.False(vm.DebugMode);
+
+        vm.DebugMode = true;
+
+        Assert.True(vm.TrySave(out var saved, out _));
+        Assert.True(saved.DebugMode);
+    }
+
+    [Fact]
+    public void NoteActiveProfile_IsCarriedIntoTheNextSave()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        vm.ProfileItems.Add(new WorkspaceProfile("Coding", new System.Collections.Generic.Dictionary<string, string> { ["MON-A"] = "MON-A:1" }));
+
+        vm.NoteActiveProfile("Coding");
+
+        Assert.True(vm.TrySave(out var saved, out _));
+        Assert.Equal("Coding", saved.ActiveProfileName);
+    }
+
+    [Fact]
+    public void TrySave_ClearsActiveProfileNameWhenThatProfileWasDeleted()
+    {
+        var vm = new SettingsViewModel(TestConfigurations.WithTwoSpaces(MonA));
+        var profile = new WorkspaceProfile("Coding", new System.Collections.Generic.Dictionary<string, string> { ["MON-A"] = "MON-A:1" });
+        vm.ProfileItems.Add(profile);
+        vm.NoteActiveProfile("Coding");
+
+        vm.ProfileItems.Remove(profile);
+
+        Assert.True(vm.TrySave(out var saved, out _));
+        Assert.Null(saved.ActiveProfileName);
+    }
+
+    [Fact]
     public void RemoveWorkspace_RemovesIt()
     {
         var config = TestConfigurations.WithTwoSpaces(MonA);

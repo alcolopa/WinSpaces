@@ -285,6 +285,12 @@ public sealed class IpcServer : IDisposable
                     return new IpcResponse(false, $"Failed to reload configuration: {syncError}", null);
                 }
 
+            case "settings":
+                string? section = null;
+                request.Arguments?.TryGetValue("Section", out section);
+                _appHost.OpenSettings(section);
+                return new IpcResponse(true, null, "Settings opened.");
+
             case "restore":
                 _appHost.ShowAllWindows();
                 return new IpcResponse(true, null, "All windows recovered to visible states.");

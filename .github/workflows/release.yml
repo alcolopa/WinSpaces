@@ -47,7 +47,8 @@ jobs:
         run: dotnet restore WindowsSpaces.sln
 
       - name: Run tests
-        run: dotnet test src/WindowsSpaces.Tests/WindowsSpaces.Tests.csproj -c Release --no-restore
+        # Integration tests drive real windows (need WindowsSpaces.TestApp), so skip on CI.
+        run: dotnet test src/WindowsSpaces.Tests/WindowsSpaces.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName!~Integration"
 
       - name: Publish app (self-contained win-x64)
         run: >
@@ -89,3 +90,4 @@ jobs:
         with:
           files: dist/WindowsSpacesSetup-*.exe
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

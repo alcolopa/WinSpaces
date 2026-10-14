@@ -7,7 +7,9 @@ public sealed record AppConfiguration(
     IReadOnlyList<ApplicationRule>? Rules = null,
     IReadOnlyList<WorkspaceProfile>? Profiles = null,
     string? ActiveProfileName = null,
-    bool EnableTransitions = true)
+    bool EnableTransitions = true,
+    bool ShowSettingsOnStartup = true,
+    bool DebugMode = false)
 {
     public const int CurrentSchemaVersion = 1;
 

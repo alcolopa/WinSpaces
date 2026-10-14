@@ -22,7 +22,8 @@ public sealed class MonitorApi : IMonitorManager
                     Id: info.szDevice,
                     DevicePath: info.szDevice,
                     Bounds: Rectangle.FromLTRB(info.rcMonitor.Left, info.rcMonitor.Top, info.rcMonitor.Right, info.rcMonitor.Bottom),
-                    IsPrimary: (info.dwFlags & MONITORINFOF_PRIMARY) != 0));
+                    IsPrimary: (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
+                    WorkArea: Rectangle.FromLTRB(info.rcWork.Left, info.rcWork.Top, info.rcWork.Right, info.rcWork.Bottom)));
             }
             return true;
         }
@@ -62,6 +63,7 @@ public sealed class MonitorApi : IMonitorManager
             Id: info.szDevice,
             DevicePath: info.szDevice,
             Bounds: Rectangle.FromLTRB(info.rcMonitor.Left, info.rcMonitor.Top, info.rcMonitor.Right, info.rcMonitor.Bottom),
-            IsPrimary: (info.dwFlags & MONITORINFOF_PRIMARY) != 0);
+            IsPrimary: (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
+            WorkArea: Rectangle.FromLTRB(info.rcWork.Left, info.rcWork.Top, info.rcWork.Right, info.rcWork.Bottom));
     }
 }

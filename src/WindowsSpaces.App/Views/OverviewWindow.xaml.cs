@@ -232,6 +232,13 @@ public sealed partial class OverviewWindow : Window
         SchedulePreviewSync();
     }
 
+    // The viewport changes size with the card, and visibility depends on it.
+    private void OnWindowListSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_isClosed) return;
+        SchedulePreviewSync();
+    }
+
     private void OnPreviewHostLoaded(object sender, RoutedEventArgs e)
     {
         if (_isClosed || sender is not FrameworkElement host) return;
@@ -320,7 +327,7 @@ public sealed partial class OverviewWindow : Window
                           | Platform.Win32.DwmApi.DWM_TNP_VISIBLE
                           | Platform.Win32.DwmApi.DWM_TNP_SOURCECLIENTAREAONLY,
                 rcDestination = rect,
-                fVisible = true,
+                fVisible = IsFullyInsideScrollViewports(host, bounds),
                 fSourceClientAreaOnly = true
             };
 
@@ -330,6 +337,41 @@ public sealed partial class OverviewWindow : Window
         {
             // A preview is decoration; never let one break the overview.
         }
+    }
+
+    /// <summary>
+    /// A DWM thumbnail is composited by the system on top of the window, so
+    /// XAML's own clipping never touches it: a row scrolled out of its card's
+    /// list kept drawing its live preview at the row's off-screen position,
+    /// spilling out of the card. Previews are therefore shown only while the
+    /// whole row sits inside every scroll viewport above it. A row that is
+    /// partly scrolled away shows its icon tile until it is fully back in view.
+    /// </summary>
+    private bool IsFullyInsideScrollViewports(FrameworkElement host, Rect hostBounds)
+    {
+        const double tolerance = 0.5;
+
+        DependencyObject? ancestor = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(host);
+        while (ancestor is not null)
+        {
+            if (ancestor is ScrollViewer viewer)
+            {
+                var viewport = viewer.TransformToVisual(RootGrid)
+                    .TransformBounds(new Rect(0, 0, viewer.ViewportWidth, viewer.ViewportHeight));
+
+                if (hostBounds.Left < viewport.Left - tolerance ||
+                    hostBounds.Top < viewport.Top - tolerance ||
+                    hostBounds.Right > viewport.Right + tolerance ||
+                    hostBounds.Bottom > viewport.Bottom + tolerance)
+                {
+                    return false;
+                }
+            }
+
+            ancestor = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(ancestor);
+        }
+
+        return true;
     }
 
     // ---- Buttons --------------------------------------------------------

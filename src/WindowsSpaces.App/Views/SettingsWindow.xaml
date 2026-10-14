@@ -11,28 +11,27 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Custom App Header -->
-        <Border Grid.Row="0" Padding="24,16,24,12" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Background="{ThemeResource LayerOnAcrylicFillColorDefault}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Border Width="36" Height="36" CornerRadius="8" Background="{ThemeResource AccentFillColorDefaultBrush}">
-                        <FontIcon Glyph="&#xE7F4;" Foreground="White" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="Windows Spaces" FontSize="18" FontWeight="SemiBold"/>
-                        <TextBlock Text="Multi-Monitor Independent Virtual Workspaces" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Grid>
-        </Border>
+        <!-- Title bar: the window extends its content into it, so this row is
+             the title bar. Everything but the reserved caption-button area
+             drags the window. -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="32"
+              Background="{ThemeResource LayerOnAcrylicFillColorDefault}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="CaptionButtonsInset" Width="150"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="14,0,0,0" VerticalAlignment="Center">
+                <Image x:Name="AppTitleIcon" Width="16" Height="16"/>
+                <TextBlock Text="Windows Spaces" FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock Text="Independent workspaces for every monitor" FontSize="12" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
+        </Grid>
 
         <!-- Main Navigation & Content Area -->
         <NavigationView x:Name="MainNavView" Grid.Row="1"
                         PaneDisplayMode="Left"
+                        IsPaneToggleButtonVisible="False"
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="False"
                         SelectionChanged="OnNavSelectionChanged"
@@ -63,7 +62,8 @@
                         <FontIcon Glyph="&#xE895;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Diagnostics" Tag="Diagnostics">
+                <!-- Hidden until Debug mode is switched on in Sync &amp; Options -->
+                <NavigationViewItem x:Name="DiagnosticsNavItem" Content="Diagnostics" Tag="Diagnostics" Visibility="Collapsed">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE9F5;"/>
                     </NavigationViewItem.Icon>
@@ -73,10 +73,10 @@
             <Grid Margin="24,16,24,16">
                 <!-- ================= WORKSPACES SECTION ================= -->
                 <ScrollViewer x:Name="WorkspacesSection" Visibility="Visible" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Stretch" Margin="0,0,14,0">
                         <StackPanel Spacing="4">
                             <TextBlock Text="Monitor Workspaces" FontSize="20" FontWeight="SemiBold"/>
-                            <TextBlock Text="Configure virtual workspaces for each connected physical monitor. Workspaces switch independently per monitor."
+                            <TextBlock Text="Set up the spaces on each connected monitor. Every monitor switches independently."
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                         </StackPanel>
 
@@ -99,9 +99,16 @@
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                                     <FontIcon Glyph="&#xE7F4;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                                                    <TextBlock Text="{Binding MonitorDisplayName}" FontWeight="SemiBold" FontSize="16"/>
-                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
-                                                        <TextBlock Text="Physical Display" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    <!-- Editable display name; empty falls back to the device name shown in the badge -->
+                                                    <TextBox Text="{Binding CustomName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="{Binding DefaultDisplayName}"
+                                                             ToolTipService.ToolTip="Rename this display"
+                                                             FontWeight="SemiBold" FontSize="16"
+                                                             MinWidth="200" MaxLength="40"
+                                                             VerticalAlignment="Center"/>
+                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
+                                                            Visibility="{Binding HasCustomName}">
+                                                        <TextBlock Text="{Binding DefaultDisplayName}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                                     </Border>
                                                 </StackPanel>
                                                 <Button Grid.Column="1" Tag="{Binding MonitorId}" Click="OnAddWorkspaceClicked" Style="{ThemeResource AccentButtonStyle}">
@@ -165,8 +172,8 @@
 
                 <!-- ================= SHORTCUTS SECTION ================= -->
                 <ScrollViewer x:Name="ShortcutsSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
-                        <Grid>
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Stretch" Margin="0,0,14,0">
+                        <Grid ColumnSpacing="16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -212,7 +219,7 @@
                                                 <!-- Title and Description -->
                                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14"/>
-                                                    <TextBlock Text="{Binding Description}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    <TextBlock Text="{Binding Description}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                                     <!-- Conflict warning if any -->
                                                     <StackPanel Orientation="Horizontal" Spacing="4"
                                                                 Visibility="{Binding HasConflict, Mode=OneWay}">
@@ -253,29 +260,29 @@
                                                     Margin="0,4,0,0">
                                                 <StackPanel Spacing="10">
                                                     <TextBlock Text="Select Modifiers and Key:" FontWeight="SemiBold" FontSize="12"/>
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                        </Grid.ColumnDefinitions>
-
+                                                    <StackPanel Spacing="12">
                                                         <!-- Modifiers Checkboxes -->
-                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                                            <CheckBox Content="Ctrl" IsChecked="{Binding IsCtrl, Mode=TwoWay}"/>
-                                                            <CheckBox Content="Shift" IsChecked="{Binding IsShift, Mode=TwoWay}"/>
-                                                            <CheckBox Content="Alt" IsChecked="{Binding IsAlt, Mode=TwoWay}"/>
-                                                            <CheckBox Content="Win" IsChecked="{Binding IsWin, Mode=TwoWay}"/>
+                                                        <StackPanel Orientation="Horizontal" Spacing="16">
+                                                            <CheckBox Content="Ctrl" MinWidth="0" IsChecked="{Binding IsCtrl, Mode=TwoWay}"/>
+                                                            <CheckBox Content="Shift" MinWidth="0" IsChecked="{Binding IsShift, Mode=TwoWay}"/>
+                                                            <CheckBox Content="Alt" MinWidth="0" IsChecked="{Binding IsAlt, Mode=TwoWay}"/>
+                                                            <CheckBox Content="Win" MinWidth="0" IsChecked="{Binding IsWin, Mode=TwoWay}"/>
                                                         </StackPanel>
 
                                                         <!-- Key Selector ComboBox -->
-                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                        <StackPanel Orientation="Horizontal" Spacing="12">
                                                             <TextBlock Text="Key:" VerticalAlignment="Center" FontWeight="Medium"/>
-                                                            <ComboBox Width="140"
+                                                            <ComboBox MinWidth="220"
                                                                       ItemsSource="{Binding AvailableKeys}"
-                                                                      SelectedItem="{Binding SelectedKey, Mode=TwoWay}"
-                                                                      DisplayMemberPath="DisplayName"/>
+                                                                      SelectedItem="{Binding SelectedKey, Mode=TwoWay}">
+                                                                <ComboBox.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <TextBlock Text="{Binding DisplayName}" TextTrimming="None"/>
+                                                                    </DataTemplate>
+                                                                </ComboBox.ItemTemplate>
+                                                            </ComboBox>
                                                         </StackPanel>
-                                                    </Grid>
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </Border>
                                         </StackPanel>
@@ -288,8 +295,8 @@
 
                 <!-- ================= RULES SECTION ================= -->
                 <ScrollViewer x:Name="RulesSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
-                        <Grid>
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Stretch" Margin="0,0,14,0">
+                        <Grid ColumnSpacing="16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -299,13 +306,17 @@
                                 <TextBlock Text="Automatically route applications to designated monitors and workspaces when launched."
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
-                            <Button Grid.Column="1" Click="OnAddRuleClicked" Style="{ThemeResource AccentButtonStyle}">
+                            <Button Grid.Column="1" Click="OnAddRuleClicked" Style="{ThemeResource AccentButtonStyle}" VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE710;" FontSize="12"/>
                                     <TextBlock Text="Add Rule"/>
                                 </StackPanel>
                             </Button>
                         </Grid>
+
+                        <TextBlock x:Name="RulesEmptyText" TextWrapping="Wrap"
+                                   Text="No rules yet. Add one to send an app to a specific display and space whenever it opens."
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                         <ItemsControl x:Name="RulesItemsControl">
                             <ItemsControl.ItemTemplate>
@@ -316,28 +327,63 @@
                                             CornerRadius="8"
                                             Padding="16"
                                             Margin="0,0,0,10">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Spacing="6">
-                                                <TextBlock Text="{Binding RuleName}" FontWeight="SemiBold" FontSize="14"/>
-                                                <TextBlock Text="{Binding ProcessDisplay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2">
-                                                        <TextBlock Text="{Binding TargetMonitorDisplayName}" FontSize="11"/>
-                                                    </Border>
-                                                    <Border Background="{ThemeResource AccentFillColorTertiaryBrush}" CornerRadius="4" Padding="6,2">
-                                                        <TextBlock Text="{Binding TargetWorkspaceDisplay}" FontSize="11"/>
-                                                    </Border>
-                                                </StackPanel>
+                                        <StackPanel Spacing="10">
+                                            <!-- Name + delete -->
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Text="{Binding RuleName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         PlaceholderText="Rule name" FontWeight="SemiBold"/>
+                                                <Button Grid.Column="1" Tag="{Binding Id}" Click="OnDeleteRuleClicked"
+                                                        ToolTipService.ToolTip="Delete rule"
+                                                        Background="Transparent" BorderThickness="0" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                                </Button>
+                                            </Grid>
+
+                                            <!-- Which app -->
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Text="{Binding ProcessPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         Header="Application"
+                                                         PlaceholderText="App file name, e.g. chrome.exe — or pick one"/>
+                                                <Button Grid.Column="1" Content="Running apps…" Tag="{Binding}"
+                                                        Click="OnPickRunningAppClicked" VerticalAlignment="Bottom"/>
+                                                <Button Grid.Column="2" Content="Browse…" Tag="{Binding}"
+                                                        Click="OnBrowseForAppClicked" VerticalAlignment="Bottom"/>
+                                            </Grid>
+
+                                            <!-- Where it goes -->
+                                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                                <ComboBox Header="Send to display" MinWidth="200"
+                                                          ItemsSource="{Binding MonitorChoices}"
+                                                          DisplayMemberPath="MonitorDisplayName"
+                                                          SelectedValuePath="MonitorId"
+                                                          SelectedValue="{Binding TargetMonitorId, Mode=TwoWay}"/>
+                                                <ComboBox Header="Space" MinWidth="100"
+                                                          ItemsSource="{Binding SpaceChoices}"
+                                                          SelectedItem="{Binding SelectedSpace, Mode=TwoWay}"/>
                                             </StackPanel>
-                                            <Button Grid.Column="1" Tag="{Binding Id}" Click="OnDeleteRuleClicked"
-                                                    Background="Transparent" BorderThickness="0" VerticalAlignment="Center">
-                                                <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
-                                            </Button>
-                                        </Grid>
+
+                                            <!-- Optional extra matching -->
+                                            <Expander Header="Match more precisely (optional)" HorizontalAlignment="Stretch"
+                                                      HorizontalContentAlignment="Stretch">
+                                                <StackPanel Spacing="8">
+                                                    <TextBox Text="{Binding WindowTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Header="Window title contains"
+                                                             PlaceholderText="Leave empty to match any title"/>
+                                                    <TextBox Text="{Binding WindowClass, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Header="Window class"
+                                                             PlaceholderText="Leave empty to match any class"/>
+                                                </StackPanel>
+                                            </Expander>
+                                        </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -347,10 +393,10 @@
 
                 <!-- ================= PROFILES SECTION ================= -->
                 <ScrollViewer x:Name="ProfilesSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Stretch" Margin="0,0,14,0">
                         <StackPanel Spacing="4">
                             <TextBlock Text="Workspace Profiles" FontSize="20" FontWeight="SemiBold"/>
-                            <TextBlock Text="Save snapshot layouts of workspaces across all monitors for quick one-click switching."
+                            <TextBlock Text="A profile remembers which space is showing on each monitor. Activate it to switch every monitor back to that layout at once."
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                         </StackPanel>
 
@@ -361,7 +407,7 @@
                                 CornerRadius="8"
                                 Padding="16">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Save Current Monitor Setup" FontWeight="SemiBold"/>
+                                <TextBlock Text="Save the spaces showing right now" FontWeight="SemiBold"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBox x:Name="NewProfileNameInput" Width="260" PlaceholderText="e.g. Coding Setup, Gaming, Meeting"/>
                                     <Button Content="Save Profile" Click="OnSaveCurrentProfileClicked" Style="{ThemeResource AccentButtonStyle}"/>
@@ -370,6 +416,10 @@
                         </Border>
 
                         <!-- Profiles List -->
+                        <TextBlock x:Name="ProfilesEmptyText" TextWrapping="Wrap"
+                                   Text="No saved profiles. Arrange your spaces, then save the layout above to come back to it in one click."
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
                         <ItemsControl x:Name="ProfilesItemsControl">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -404,7 +454,7 @@
 
                 <!-- ================= SYNC & OPTIONS SECTION ================= -->
                 <ScrollViewer x:Name="SyncSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Stretch" Margin="0,0,14,0">
                         <StackPanel Spacing="4">
                             <TextBlock Text="Sync &amp; Preferences" FontSize="20" FontWeight="SemiBold"/>
                             <TextBlock Text="Manage configuration storage location and visual preferences."
@@ -483,12 +533,52 @@
                                 <ToggleSwitch Grid.Column="1" x:Name="EnableTransitionsToggle" IsOn="True" VerticalAlignment="Center" Margin="0" OffContent="" OnContent=""/>
                             </Grid>
                         </Border>
+
+                        <!-- Open Settings on startup Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="Open Settings on startup" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="Show this window when Windows Spaces starts. Turn off to start quietly in the system tray."
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="ShowSettingsOnStartupToggle" IsOn="True" VerticalAlignment="Center" Margin="0" OffContent="" OnContent=""/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Debug mode Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="Debug mode" FontWeight="SemiBold" FontSize="14"/>
+                                    <TextBlock Text="Adds a Diagnostics page (live spaces and tracked windows) here and in the tray menu. Meant for troubleshooting."
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="DebugModeToggle" IsOn="False" VerticalAlignment="Center" Margin="0" OffContent="" OnContent=""/>
+                            </Grid>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
 
                 <!-- ================= DIAGNOSTICS SECTION ================= -->
                 <ScrollViewer x:Name="DiagnosticsSection" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Left">
+                    <StackPanel Spacing="16" MaxWidth="840" HorizontalAlignment="Stretch" Margin="0,0,14,0">
                         <StackPanel Spacing="4">
                             <TextBlock Text="Diagnostics &amp; Inspector" FontSize="20" FontWeight="SemiBold"/>
                             <TextBlock Text="Inspect active workspaces and tracked window handles in real-time."

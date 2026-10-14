@@ -117,6 +117,7 @@ public sealed class AppHost : IDisposable
 
         _trayIcon = new TrayIcon(messageWindowHwnd);
         _trayIcon.MenuItemInvoked += OnTrayMenuItemInvoked;
+        _trayIcon.IsDiagnosticsVisible = () => _config.DebugMode;
         _trayIcon.Show();
 
         if (hotkeyError is not null)
@@ -130,8 +131,13 @@ public sealed class AppHost : IDisposable
 
         InitializeConfigWatcher();
 
-        // Open the settings window on initial startup so the user immediately sees the interface
-        OnTrayMenuItemInvoked(this, TrayMenuCommand.Settings);
+        // Open the settings window on startup unless the user turned that off —
+        // but never stay silent about a failed hotkey registration, since the
+        // window is where it gets fixed.
+        if (_config.ShowSettingsOnStartup || hotkeyError is not null)
+        {
+            OnTrayMenuItemInvoked(this, TrayMenuCommand.Settings);
+        }
     }
 
     private void InitializeConfigWatcher()
@@ -183,7 +189,8 @@ public sealed class AppHost : IDisposable
     private SettingsWindow? _settingsWindow;
     private bool _openingSettingsWindow;
 
-    private void OpenSettings(string? section = null)
+    /// <summary>Must be called on the UI thread.</summary>
+    public void OpenSettings(string? section = null)
     {
         if (_settingsWindow is null)
         {
@@ -199,14 +206,29 @@ public sealed class AppHost : IDisposable
             _openingSettingsWindow = true;
             try
             {
-                _settingsWindow = new SettingsWindow(
+                var openedWindow = new SettingsWindow(
                     GetConfiguration,
                     ApplyConfiguration,
                     GetConfigSyncFolder,
                     SetConfigSyncFolder,
                     GetDiagnosticsSnapshot,
-                    _workspaceManager.GetActiveWorkspaces());
-                _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+                    _workspaceManager.GetActiveWorkspaces,
+                    ActivateProfile);
+                _settingsWindow = openedWindow;
+
+                // Spaces can also be created or removed while Settings is open
+                // (the New Space shortcut, the CLI, the overview). Without this
+                // the window keeps showing — and, on its next save, writes back
+                // — a stale list.
+                void OnWorkspacesChanged(object? s, EventArgs e) =>
+                    openedWindow.DispatcherQueue.TryEnqueue(() => openedWindow.SyncFromHost(_config));
+
+                WorkspacesChanged += OnWorkspacesChanged;
+                openedWindow.Closed += (_, _) =>
+                {
+                    WorkspacesChanged -= OnWorkspacesChanged;
+                    _settingsWindow = null;
+                };
             }
             finally
             {
@@ -307,7 +329,7 @@ public sealed class AppHost : IDisposable
                 : new WorkspaceDefinition($"{monitorConfig.MonitorId}:1", "Space 1", 1);
 
             _workspaceManager.ResetToSingleWorkspace(monitorConfig.MonitorId, space);
-            synced.Add(new MonitorWorkspaceConfig(monitorConfig.MonitorId, new[] { space }));
+            synced.Add(monitorConfig with { Workspaces = new[] { space } });
         }
 
         var result = config with
@@ -826,16 +848,45 @@ public sealed class AppHost : IDisposable
         var activeId = _workspaceManager.GetActiveWorkspace(monitorId);
         var name = workspaces.FirstOrDefault(w => w.Id == activeId)?.Name ?? activeId ?? "?";
         var position = workspaces.ToList().FindIndex(w => w.Id == activeId) + 1;
+        var label = _config.Monitors.FirstOrDefault(m => m.MonitorId == monitorId)?.DisplayName is { Length: > 0 } custom
+            ? custom
+            : monitorId;
 
         _trayIcon?.SetTooltip(position > 0
-            ? $"Windows Spaces — {monitorId}: {name} ({position}/{workspaces.Count})"
-            : $"Windows Spaces — {monitorId}: {name}");
+            ? $"Windows Spaces — {label}: {name} ({position}/{workspaces.Count})"
+            : $"Windows Spaces — {label}: {name}");
     }
 
     /// <summary>Raised after the configured spaces change, so open UI can refresh.</summary>
     public event EventHandler? WorkspacesChanged;
 
     public IReadOnlyList<Monitor> GetMonitors() => _monitorApi.GetMonitors();
+
+    /// <summary>
+    /// Applies a saved profile by name and records it as the active one.
+    /// A profile that is already active is re-applied directly (the config
+    /// path only applies on a name change), so "Activate" always does something.
+    /// </summary>
+    public bool ActivateProfile(string name, out string? error)
+    {
+        error = null;
+
+        var profile = _config.ActiveProfiles.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (profile is null)
+        {
+            error = $"Profile '{name}' not found. It may not have been saved yet.";
+            return false;
+        }
+
+        if (!string.Equals(_config.ActiveProfileName, profile.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            // ApplyConfiguration applies the profile itself when the name changes.
+            return ApplyConfiguration(_config with { ActiveProfileName = profile.Name }, out error);
+        }
+
+        _workspaceManager.ApplyProfile(profile);
+        return true;
+    }
 
     /// <summary>
     /// Creates a space on the given monitor, applies it live and persists it.
@@ -1124,7 +1175,7 @@ public sealed class AppHost : IDisposable
     private bool TryUpdateMonitorWorkspaces(string monitorId, IReadOnlyList<WorkspaceDefinition> workspaces, out string? error)
     {
         var monitors = _config.Monitors.Any(m => m.MonitorId == monitorId)
-            ? _config.Monitors.Select(m => m.MonitorId == monitorId ? new MonitorWorkspaceConfig(monitorId, workspaces) : m).ToList()
+            ? _config.Monitors.Select(m => m.MonitorId == monitorId ? m with { Workspaces = workspaces } : m).ToList()
             : _config.Monitors.Append(new MonitorWorkspaceConfig(monitorId, workspaces)).ToList();
 
         var candidate = _config with { Monitors = monitors };

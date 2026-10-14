@@ -135,6 +135,9 @@ public sealed class TrayIcon : IDisposable
     private nint _hIcon;
     private bool _suppressNextClick;
 
+    /// <summary>Asked each time the menu opens; Diagnostics only appears in debug mode.</summary>
+    public Func<bool>? IsDiagnosticsVisible { get; set; }
+
     public event EventHandler<TrayMenuCommand>? MenuItemInvoked;
     public event EventHandler? DoubleClicked;
 
@@ -243,6 +246,10 @@ public sealed class TrayIcon : IDisposable
         {
             for (var i = 0; i < MenuItems.Length; i++)
             {
+                // Ids stay index-based, so skipping an entry leaves a gap
+                // rather than renumbering the ones after it.
+                if (MenuItems[i].Command == TrayMenuCommand.Diagnostics && !(IsDiagnosticsVisible?.Invoke() ?? false)) continue;
+
                 AppendMenu(hMenu, 0, (nint)(i + 1), MenuItems[i].Label);
             }
 

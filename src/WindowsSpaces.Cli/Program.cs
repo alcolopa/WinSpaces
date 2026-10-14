@@ -104,6 +104,10 @@ internal static class Program
             case "restore":
                 break;
 
+            case "settings":
+                if (cleanArgs.Length > 1) arguments["Section"] = cleanArgs[1];
+                break;
+
             default:
                 PrintError($"Error: Unknown command '{cleanArgs[0]}'.", jsonOutput);
                 PrintUsage();
@@ -222,6 +226,7 @@ internal static class Program
         Console.WriteLine("  ws.exe profile <profileName>        Apply a workspace profile");
         Console.WriteLine("  ws.exe move-window <hwnd> <workspaceId>   Move a window to a different workspace");
         Console.WriteLine("  ws.exe rules                        List active rules");
+        Console.WriteLine("  ws.exe settings [section]           Open Settings (Workspaces, Shortcuts, Rules, Profiles, Sync, Diagnostics)");
         Console.WriteLine("  ws.exe sync                         Trigger configuration reload");
         Console.WriteLine("  ws.exe restore                      Emergency show all windows recovery");
         Console.WriteLine();

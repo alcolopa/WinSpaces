@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.1-beta
 - Single-instance guard: a second launch exits instead of fighting the first for hotkeys and the IPC pipe.
 - Crash recovery: windows hidden by a session that was killed (Task Manager, power loss) are shown again at next launch, via a journal at `%LOCALAPPDATA%\WindowsSpaces\hidden-windows.txt`.
 - Settings: "Start with Windows" toggle (per-user Run key).

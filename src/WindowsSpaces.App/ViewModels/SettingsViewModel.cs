@@ -6,7 +6,7 @@ namespace WindowsSpaces.App.ViewModels;
 
 public sealed class SettingsViewModel : ViewModelBase
 {
-    private readonly AppConfiguration _original;
+    private AppConfiguration _original;
     private bool _enableTransitions;
     private bool _isValidating;
 
@@ -34,6 +34,30 @@ public sealed class SettingsViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Records a profile the host just activated, so saves from this window
+    /// carry the current active profile instead of the one it opened with.
+    /// </summary>
+    public void NoteActiveProfile(string name) =>
+        _original = _original with { ActiveProfileName = name };
+
+    private bool _debugMode;
+
+    /// <summary>Shows the Diagnostics page and tray entry; off for everyday use.</summary>
+    public bool DebugMode
+    {
+        get => _debugMode;
+        set { if (SetProperty(ref _debugMode, value)) RaiseChanged(); }
+    }
+
+    private bool _showSettingsOnStartup;
+
+    public bool ShowSettingsOnStartup
+    {
+        get => _showSettingsOnStartup;
+        set { if (SetProperty(ref _showSettingsOnStartup, value)) RaiseChanged(); }
+    }
+
+    /// <summary>
     /// Raised when an edit has produced settings worth applying. The window
     /// listens for this instead of a Save button.
     ///
@@ -44,12 +68,73 @@ public sealed class SettingsViewModel : ViewModelBase
     /// </summary>
     public event EventHandler? Changed;
 
-    private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
+    private bool _suppressChanged;
+
+    private void RaiseChanged()
+    {
+        if (_suppressChanged) return;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Merges spaces that changed outside this window (New Space shortcut, CLI,
+    /// overview) into the lists being edited. The merge itself does not raise
+    /// <see cref="Changed"/> — the host already has this state, so applying it
+    /// back would only churn the config file — but hotkeys for newly added
+    /// spaces are real edits and do.
+    /// </summary>
+    /// <param name="mergeRemovalsAndRenames">
+    /// False while the user has an edit of their own still waiting to be
+    /// applied: removing or renaming then would silently discard it.
+    /// </param>
+    public void SyncFromConfiguration(AppConfiguration host, bool mergeRemovalsAndRenames)
+    {
+        var addedIndexes = new List<int>();
+
+        _suppressChanged = true;
+        try
+        {
+            foreach (var hostMonitor in host.Monitors)
+            {
+                var monitor = MonitorItems.FirstOrDefault(m => m.MonitorId == hostMonitor.MonitorId);
+                if (monitor is null) continue;
+
+                foreach (var definition in hostMonitor.Workspaces)
+                {
+                    var existing = monitor.Workspaces.FirstOrDefault(w => w.Id == definition.Id);
+                    if (existing is null)
+                    {
+                        monitor.Workspaces.Add(new WorkspaceItemViewModel(definition));
+                        addedIndexes.Add(definition.Index);
+                    }
+                    else if (mergeRemovalsAndRenames && existing.Name != definition.Name)
+                    {
+                        existing.Name = definition.Name;
+                    }
+                }
+
+                if (!mergeRemovalsAndRenames) continue;
+
+                var stale = monitor.Workspaces
+                    .Where(w => hostMonitor.Workspaces.All(d => d.Id != w.Id))
+                    .ToList();
+                foreach (var workspace in stale) monitor.Workspaces.Remove(workspace);
+            }
+        }
+        finally
+        {
+            _suppressChanged = false;
+        }
+
+        foreach (var index in addedIndexes.Distinct()) EnsureHotkeysForWorkspaceIndex(index);
+    }
 
     public SettingsViewModel(AppConfiguration current)
     {
         _original = current;
         _enableTransitions = current.EnableTransitions;
+        _showSettingsOnStartup = current.ShowSettingsOnStartup;
+        _debugMode = current.DebugMode;
 
         MonitorItems = new ObservableCollection<MonitorItemViewModel>(
             current.Monitors.Select(m => new MonitorItemViewModel(m)));
@@ -58,7 +143,7 @@ public sealed class SettingsViewModel : ViewModelBase
             current.Hotkeys.Select(h => new HotkeyItemViewModel(h)));
 
         RuleItems = new ObservableCollection<RuleItemViewModel>(
-            current.ActiveRules.Select(r => new RuleItemViewModel(r)));
+            current.ActiveRules.Select(r => new RuleItemViewModel(r) { MonitorChoices = MonitorItems }));
 
         ProfileItems = new ObservableCollection<WorkspaceProfile>(current.ActiveProfiles);
 
@@ -199,6 +284,28 @@ public sealed class SettingsViewModel : ViewModelBase
 
     public IReadOnlyList<HotkeyBinding> Bindings =>
         HotkeyItems.Select(h => h.ToBinding()).ToList();
+
+    /// <summary>
+    /// Adds an empty rule aimed at the first display. It has no matching
+    /// criteria yet, so it will not save until the user picks an app or types a
+    /// title — which is what the editor on its card is for.
+    /// </summary>
+    public RuleItemViewModel AddRule()
+    {
+        var firstMonitor = MonitorItems.FirstOrDefault()?.MonitorId ?? "MON-1";
+        var rule = new ApplicationRule(
+            Id: Guid.NewGuid().ToString("N"),
+            RuleName: $"App Rule {RuleItems.Count + 1}",
+            ProcessPath: null,
+            WindowClass: null,
+            WindowTitle: null,
+            TargetMonitorId: firstMonitor,
+            TargetWorkspaceIndex: 1);
+
+        var item = new RuleItemViewModel(rule) { MonitorChoices = MonitorItems };
+        RuleItems.Add(item);
+        return item;
+    }
 
     public void AddWorkspace(string monitorId)
     {
@@ -366,7 +473,14 @@ public sealed class SettingsViewModel : ViewModelBase
             Hotkeys = hotkeyBindings,
             Rules = rules,
             Profiles = ProfileItems.ToList(),
-            EnableTransitions = _enableTransitions
+            // Deleting the active profile must not leave a dangling name that
+            // fails validation on every later save.
+            ActiveProfileName = ProfileItems.Any(p => string.Equals(p.Name, _original.ActiveProfileName, StringComparison.OrdinalIgnoreCase))
+                ? _original.ActiveProfileName
+                : null,
+            EnableTransitions = _enableTransitions,
+            ShowSettingsOnStartup = _showSettingsOnStartup,
+            DebugMode = _debugMode
         };
 
         if (!candidate.Validate(out error))

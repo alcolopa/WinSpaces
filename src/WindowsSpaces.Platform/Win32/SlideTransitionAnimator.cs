@@ -129,7 +129,10 @@ public sealed class SlideTransitionAnimator : IWorkspaceTransitionAnimator, IDis
             return;
         }
 
-        var bounds = monitor.Bounds;
+        // The work area, not the full monitor: the overlay is topmost, and
+        // covering the taskbar made it vanish for the length of the slide and
+        // then redraw when the overlay was destroyed.
+        var bounds = monitor.UsableBounds;
         var overlay = CreateOverlay(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         if (overlay == 0)
         {

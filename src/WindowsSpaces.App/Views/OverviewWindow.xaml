@@ -173,7 +173,8 @@
 
                             <ScrollViewer VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
-                                          ViewChanged="OnWindowListScrollViewChanged">
+                                          ViewChanged="OnWindowListScrollViewChanged"
+                                          SizeChanged="OnWindowListSizeChanged">
                                 <ItemsControl ItemsSource="{Binding Windows}"
                                               ItemTemplate="{StaticResource WindowTileTemplate}"/>
                             </ScrollViewer>

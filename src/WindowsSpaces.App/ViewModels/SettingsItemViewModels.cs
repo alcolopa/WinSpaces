@@ -307,9 +307,12 @@ public sealed class WorkspaceItemViewModel : ViewModelBase
 
 public sealed class MonitorItemViewModel : ViewModelBase
 {
+    private string? _customName;
+
     public MonitorItemViewModel(MonitorWorkspaceConfig config)
     {
         MonitorId = config.MonitorId;
+        _customName = config.DisplayName;
         Workspaces = new ObservableCollection<WorkspaceItemViewModel>(
             config.Workspaces.Select(w => new WorkspaceItemViewModel(w)));
     }
@@ -317,15 +320,41 @@ public sealed class MonitorItemViewModel : ViewModelBase
     public string MonitorId { get; }
 
     /// <summary>
-    /// The id without its <c>\\.\</c> device-namespace prefix. Display only —
+    /// The id without its <c>\\.\</c> device-namespace prefix — what the
+    /// display is called until the user names it. Display only —
     /// <see cref="MonitorId"/> stays the identity everything is keyed on.
     /// </summary>
-    public string MonitorDisplayName => MonitorNaming.ToDisplayName(MonitorId);
+    public string DefaultDisplayName => MonitorNaming.ToDisplayName(MonitorId);
+
+    /// <summary>What the user typed; empty means "use the default".</summary>
+    public string CustomName
+    {
+        get => _customName ?? string.Empty;
+        set
+        {
+            if (SetProperty(ref _customName, value))
+            {
+                OnPropertyChanged(nameof(MonitorDisplayName));
+                OnPropertyChanged(nameof(HasCustomName));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The device-name badge only earns its space once the display has been
+    /// renamed; until then it would just repeat the name beside it.
+    /// </summary>
+    public bool HasCustomName => !string.IsNullOrWhiteSpace(_customName);
+
+    public string MonitorDisplayName =>
+        string.IsNullOrWhiteSpace(_customName) ? DefaultDisplayName : _customName.Trim();
 
     public ObservableCollection<WorkspaceItemViewModel> Workspaces { get; }
 
     public MonitorWorkspaceConfig ToConfig() =>
-        new(MonitorId, Workspaces.Select(w => w.ToDefinition()).ToList());
+        new(MonitorId,
+            Workspaces.Select(w => w.ToDefinition()).ToList(),
+            string.IsNullOrWhiteSpace(_customName) ? null : _customName.Trim());
 }
 
 public sealed class RuleItemViewModel : ViewModelBase
@@ -380,6 +409,13 @@ public sealed class RuleItemViewModel : ViewModelBase
         set => SetProperty(ref _windowTitle, value);
     }
 
+    /// <summary>The Space picker's selection (boxed so a ComboBox can bind SelectedItem to it).</summary>
+    public object? SelectedSpace
+    {
+        get => TargetWorkspaceIndex;
+        set { if (value is int index) TargetWorkspaceIndex = index; }
+    }
+
     public string TargetMonitorId
     {
         get => _targetMonitorId;
@@ -389,8 +425,21 @@ public sealed class RuleItemViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// The displays a rule can target — the same live list the Displays page
+    /// edits, so a renamed display shows its new name here. Set by the owning
+    /// <see cref="SettingsViewModel"/>.
+    /// </summary>
+    public IReadOnlyList<MonitorItemViewModel> MonitorChoices { get; set; } = Array.Empty<MonitorItemViewModel>();
+
+    /// <summary>Space numbers a rule can target (1 to the per-monitor maximum).</summary>
+    public IReadOnlyList<int> SpaceChoices { get; } =
+        Enumerable.Range(1, AppConfiguration.MaxWorkspacesPerMonitor).ToList();
+
     /// <summary>Display-only form of <see cref="TargetMonitorId"/>.</summary>
-    public string TargetMonitorDisplayName => MonitorNaming.ToDisplayName(TargetMonitorId);
+    public string TargetMonitorDisplayName =>
+        MonitorChoices.FirstOrDefault(m => m.MonitorId == TargetMonitorId)?.MonitorDisplayName
+        ?? MonitorNaming.ToDisplayName(TargetMonitorId);
 
     public int TargetWorkspaceIndex
     {
@@ -407,5 +456,17 @@ public sealed class RuleItemViewModel : ViewModelBase
     public string ProcessDisplay => string.IsNullOrWhiteSpace(ProcessPath) ? "Any application" : ProcessPath;
     public string TargetWorkspaceDisplay => $"Space {TargetWorkspaceIndex}";
 
-    public ApplicationRule ToRule() => new(Id, RuleName, ProcessPath, WindowClass, WindowTitle, TargetMonitorId, TargetWorkspaceIndex);
+    public ApplicationRule ToRule() => new(
+        Id,
+        RuleName,
+        NullIfBlank(ProcessPath),
+        NullIfBlank(WindowClass),
+        NullIfBlank(WindowTitle),
+        TargetMonitorId,
+        TargetWorkspaceIndex);
+
+    // The editor's text boxes write "" for an empty field; a rule stores
+    // "no criterion" as null.
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

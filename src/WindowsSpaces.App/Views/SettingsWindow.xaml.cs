@@ -24,6 +24,12 @@ public delegate bool ApplyConfigurationCallback(AppConfiguration config, out str
 /// </summary>
 public delegate bool ConfigSyncFolderCallback(string? folder, out string? error);
 
+/// <summary>
+/// Applies a saved profile by name. TrySave-style: returns false with a
+/// user-displayable <paramref name="error"/> instead of throwing.
+/// </summary>
+public delegate bool ActivateProfileCallback(string name, out string? error);
+
 public sealed partial class SettingsWindow : Window
 {
     private readonly SettingsViewModel _viewModel;
@@ -31,7 +37,11 @@ public sealed partial class SettingsWindow : Window
     private readonly Func<string?> _getSyncFolder;
     private readonly ConfigSyncFolderCallback _setSyncFolder;
     private readonly Func<DiagnosticsSnapshot>? _getDiagnostics;
-    private readonly IReadOnlyDictionary<string, string>? _activeWorkspaces;
+    // A lookup, not a snapshot: spaces are switched all the time while this
+    // window sits open, and a profile saved from a stale snapshot would
+    // capture the layout from when the window opened.
+    private readonly Func<IReadOnlyDictionary<string, string>>? _getActiveWorkspaces;
+    private readonly ActivateProfileCallback? _activateProfile;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _applyTimer;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _savedHintTimer;
 
@@ -41,7 +51,8 @@ public sealed partial class SettingsWindow : Window
         Func<string?> getSyncFolder,
         ConfigSyncFolderCallback setSyncFolder,
         Func<DiagnosticsSnapshot>? getDiagnostics = null,
-        IReadOnlyDictionary<string, string>? activeWorkspaces = null)
+        Func<IReadOnlyDictionary<string, string>>? getActiveWorkspaces = null,
+        ActivateProfileCallback? activateProfile = null)
     {
         try
         {
@@ -56,12 +67,23 @@ public sealed partial class SettingsWindow : Window
             _getSyncFolder = getSyncFolder;
             _setSyncFolder = setSyncFolder;
             _getDiagnostics = getDiagnostics;
-            _activeWorkspaces = activeWorkspaces;
+            _getActiveWorkspaces = getActiveWorkspaces;
+            _activateProfile = activateProfile;
 
             MonitorsItemsControl.ItemsSource = _viewModel.MonitorItems;
             ShortcutsItemsControl.ItemsSource = _viewModel.HotkeyItems;
             RulesItemsControl.ItemsSource = _viewModel.RuleItems;
             ProfilesItemsControl.ItemsSource = _viewModel.ProfileItems;
+
+            // Empty pages say what they are for instead of sitting blank.
+            void UpdateEmptyStates()
+            {
+                RulesEmptyText.Visibility = _viewModel.RuleItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                ProfilesEmptyText.Visibility = _viewModel.ProfileItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            _viewModel.RuleItems.CollectionChanged += (_, _) => UpdateEmptyStates();
+            _viewModel.ProfileItems.CollectionChanged += (_, _) => UpdateEmptyStates();
+            UpdateEmptyStates();
 
             StartWithWindowsToggle.IsOn = Helpers.StartupRegistration.IsEnabled();
             StartWithWindowsToggle.Toggled += (s, e) =>
@@ -76,6 +98,17 @@ public sealed partial class SettingsWindow : Window
 
             EnableTransitionsToggle.IsOn = _viewModel.EnableTransitions;
             EnableTransitionsToggle.Toggled += (s, e) => _viewModel.EnableTransitions = EnableTransitionsToggle.IsOn;
+
+            DebugModeToggle.IsOn = _viewModel.DebugMode;
+            ApplyDebugMode(_viewModel.DebugMode);
+            DebugModeToggle.Toggled += (s, e) =>
+            {
+                _viewModel.DebugMode = DebugModeToggle.IsOn;
+                ApplyDebugMode(DebugModeToggle.IsOn);
+            };
+
+            ShowSettingsOnStartupToggle.IsOn = _viewModel.ShowSettingsOnStartup;
+            ShowSettingsOnStartupToggle.Toggled += (s, e) => _viewModel.ShowSettingsOnStartup = ShowSettingsOnStartupToggle.IsOn;
 
             _viewModel.Changed += (_, _) => ScheduleApply();
 
@@ -120,6 +153,34 @@ public sealed partial class SettingsWindow : Window
                 appWindow.Title = "Windows Spaces Settings";
                 appWindow.Resize(new SizeInt32(980, 720));
 
+                var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+                if (System.IO.File.Exists(iconPath))
+                {
+                    // Taskbar / Alt+Tab icon, and the one drawn in our own title bar.
+                    appWindow.SetIcon(iconPath);
+                    AppTitleIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
+                }
+
+                // Draw our own title bar and let the system caption buttons
+                // sit on it, transparent, instead of a separate grey strip.
+                ExtendsContentIntoTitleBar = true;
+                SetTitleBar(AppTitleBar);
+
+                var titleBar = appWindow.TitleBar;
+                titleBar.ButtonBackgroundColor = Colors.Transparent;
+                titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+
+                // 32px matches the system caption buttons, so they line up with
+                // our title bar instead of hanging from its top edge.
+                titleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+
+                _appWindow = appWindow;
+                if (Content is FrameworkElement root)
+                {
+                    root.Loaded += (_, _) => ApplyCaptionButtonColors();
+                    root.ActualThemeChanged += (_, _) => ApplyCaptionButtonColors();
+                }
+
                 // Center on current display
                 var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 if (displayArea != null)
@@ -138,12 +199,62 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>
+    /// Folds spaces changed elsewhere into the open window. While an edit of
+    /// the user's own is still waiting out its debounce, only additions are
+    /// merged: removals and renames would clobber that pending edit.
+    /// </summary>
+    public void SyncFromHost(AppConfiguration hostConfig) =>
+        _viewModel.SyncFromConfiguration(hostConfig, mergeRemovalsAndRenames: _applyTimer?.IsRunning != true);
+
+    /// <summary>Diagnostics exists only in debug mode; switching it off while on that page moves you off it.</summary>
+    private void ApplyDebugMode(bool enabled)
+    {
+        DiagnosticsNavItem.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!enabled && MainNavView.SelectedItem == DiagnosticsNavItem && MainNavView.MenuItems.Count > 0)
+        {
+            MainNavView.SelectedItem = MainNavView.MenuItems[0];
+        }
+    }
+
+    private AppWindow? _appWindow;
+
+    /// <summary>
+    /// The default caption glyphs go very faint while the window is inactive,
+    /// which on a transparent title bar reads as "disabled". Pin readable
+    /// colours for the current theme; hover and pressed states stay the
+    /// system's, including the red close button.
+    /// </summary>
+    private void ApplyCaptionButtonColors()
+    {
+        if (_appWindow is null) return;
+
+        try
+        {
+            var dark = (Content as FrameworkElement)?.ActualTheme != ElementTheme.Light;
+            var active = dark ? Colors.White : Colors.Black;
+            var inactive = dark
+                ? ColorHelper.FromArgb(0xFF, 0xA0, 0xA0, 0xA0)
+                : ColorHelper.FromArgb(0xFF, 0x70, 0x70, 0x70);
+
+            var titleBar = _appWindow.TitleBar;
+            titleBar.ButtonForegroundColor = active;
+            titleBar.ButtonInactiveForegroundColor = inactive;
+        }
+        catch
+        {
+            // Cosmetic only.
+        }
+    }
+
     public void NavigateToSection(string sectionTag)
     {
         foreach (var item in MainNavView.MenuItems.OfType<NavigationViewItem>())
         {
             if (string.Equals(item.Tag as string, sectionTag, StringComparison.OrdinalIgnoreCase))
             {
+                if (item.Visibility != Visibility.Visible) break;
                 MainNavView.SelectedItem = item;
                 break;
             }
@@ -182,8 +293,22 @@ public sealed partial class SettingsWindow : Window
         try
         {
             var snapshot = _getDiagnostics();
-            DiagMonitorsList.ItemsSource = snapshot.Monitors.Select(m => $"{m.MonitorId}: Active Space = {m.ActiveWorkspaceId ?? "None"}").ToList();
-            DiagWindowsList.ItemsSource = snapshot.Windows.Select(w => $"HWND: 0x{w.Hwnd:X8} | Space: {w.WorkspaceId ?? "unassigned"} | Monitor: {w.MonitorId ?? "none"} | PID: {w.ProcessId} | Visible: {w.IsVisible}").ToList();
+            // Friendly names where the settings know them; the raw ids are
+            // device-path artefacts like \\.\DISPLAY1:1.
+            string MonitorLabel(string? id) =>
+                id is null ? "none" : _viewModel.MonitorItems.FirstOrDefault(m => m.MonitorId == id)?.MonitorDisplayName
+                                       ?? MonitorNaming.ToDisplayName(id);
+
+            string SpaceLabel(string? id) =>
+                id is null ? "unassigned" : _viewModel.MonitorItems.SelectMany(m => m.Workspaces).FirstOrDefault(w => w.Id == id)?.Name
+                                             ?? id;
+
+            DiagMonitorsList.ItemsSource = snapshot.Monitors
+                .Select(m => $"{MonitorLabel(m.MonitorId)}: Active Space = {(m.ActiveWorkspaceId is null ? "None" : SpaceLabel(m.ActiveWorkspaceId))}")
+                .ToList();
+            DiagWindowsList.ItemsSource = snapshot.Windows
+                .Select(w => $"HWND: 0x{w.Hwnd:X8} | Space: {SpaceLabel(w.WorkspaceId)} | Monitor: {MonitorLabel(w.MonitorId)} | PID: {w.ProcessId} | Visible: {w.IsVisible}")
+                .ToList();
         }
         catch
         {
@@ -232,20 +357,79 @@ public sealed partial class SettingsWindow : Window
 
     private void OnAddRuleClicked(object sender, RoutedEventArgs e)
     {
-        var firstMonitor = _viewModel.MonitorItems.FirstOrDefault()?.MonitorId ?? "MON-1";
-        var id = Guid.NewGuid().ToString("N");
-        var nextNumber = _viewModel.RuleItems.Count + 1;
-        var rule = new ApplicationRule(
-            Id: id,
-            RuleName: $"App Rule {nextNumber}",
-            ProcessPath: null,
-            WindowClass: null,
-            WindowTitle: null,
-            TargetMonitorId: firstMonitor,
-            TargetWorkspaceIndex: 1
-        );
-        _viewModel.RuleItems.Add(new RuleItemViewModel(rule));
-        StatusInfoBar.IsOpen = false;
+        _viewModel.AddRule();
+        ShowInfo("Choose an app for the new rule — it is saved once it has something to match.");
+    }
+
+    /// <summary>Lists apps that currently have a window, so a rule can target one without typing its name.</summary>
+    private async void OnPickRunningAppClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: RuleItemViewModel rule } button) return;
+
+        var apps = await Task.Run(() =>
+        {
+            var found = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var self = Environment.ProcessId;
+
+            foreach (var process in System.Diagnostics.Process.GetProcesses())
+            {
+                try
+                {
+                    if (process.Id == self || process.MainWindowHandle == 0 || string.IsNullOrWhiteSpace(process.MainWindowTitle)) continue;
+                    var path = process.MainModule?.FileName;
+                    if (!string.IsNullOrEmpty(path)) found.TryAdd(path, process.MainWindowTitle);
+                }
+                catch (Exception)
+                {
+                    // Protected or exiting processes refuse module access; they can't be matched by path anyway.
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            return found.OrderBy(kv => System.IO.Path.GetFileName(kv.Key), StringComparer.OrdinalIgnoreCase).ToList();
+        });
+
+        var flyout = new MenuFlyout();
+        if (apps.Count == 0)
+        {
+            flyout.Items.Add(new MenuFlyoutItem { Text = "No running apps found", IsEnabled = false });
+        }
+
+        foreach (var (path, title) in apps)
+        {
+            var item = new MenuFlyoutItem { Text = $"{System.IO.Path.GetFileName(path)}  —  {title}" };
+            ToolTipService.SetToolTip(item, path);
+            item.Click += (_, _) => ApplyPickedApp(rule, path);
+            flyout.Items.Add(item);
+        }
+
+        flyout.ShowAt(button);
+    }
+
+    private async void OnBrowseForAppClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: RuleItemViewModel rule }) return;
+
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        picker.FileTypeFilter.Add(".exe");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is not null) ApplyPickedApp(rule, file.Path);
+    }
+
+    // Rules match on "process path contains", so the bare file name keeps
+    // working when an updater moves the app into a new versioned folder.
+    private static void ApplyPickedApp(RuleItemViewModel rule, string path)
+    {
+        rule.ProcessPath = System.IO.Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(rule.RuleName) || rule.RuleName.StartsWith("App Rule ", StringComparison.Ordinal))
+        {
+            rule.RuleName = System.IO.Path.GetFileNameWithoutExtension(path);
+        }
     }
 
     private void OnDeleteRuleClicked(object sender, RoutedEventArgs e)
@@ -269,7 +453,7 @@ public sealed partial class SettingsWindow : Window
             return;
         }
 
-        var active = _activeWorkspaces ?? _viewModel.MonitorItems.ToDictionary(
+        var active = _getActiveWorkspaces?.Invoke() ?? _viewModel.MonitorItems.ToDictionary(
             m => m.MonitorId,
             m => m.Workspaces.FirstOrDefault()?.Id ?? $"{m.MonitorId}:1"
         );
@@ -287,9 +471,29 @@ public sealed partial class SettingsWindow : Window
 
     private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string profileName })
+        if (sender is not Button { Tag: string profileName }) return;
+
+        if (_activateProfile is null)
         {
-            ShowInfo($"Profile '{profileName}' will be activated when settings are saved.");
+            ShowError("Profiles can't be activated from here.");
+            return;
+        }
+
+        // A profile saved a moment ago may still be inside the debounce window;
+        // the host only knows about it once it has been applied.
+        _applyTimer?.Stop();
+        ApplyNow();
+
+        if (_activateProfile(profileName, out var error))
+        {
+            // Keeps the next save from writing the previous profile name back,
+            // which would re-apply that old profile.
+            _viewModel.NoteActiveProfile(profileName);
+            ShowInfo($"Activated profile '{profileName}'.");
+        }
+        else
+        {
+            ShowError(error ?? $"Could not activate '{profileName}'.");
         }
     }
 
